@@ -1,0 +1,3 @@
+httpx>=0.28.1
+nookwire-ssh @ git+https://github.com/lars-hagen/nookwire-ssh@v2.3.1
+streamlit>=1.61.1

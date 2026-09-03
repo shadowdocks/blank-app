@@ -1,48 +1,190 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+import io
+import os
 from pathlib import Path
+import platform
+import signal
 import subprocess
 import sys
+import tarfile
+import time
+from urllib.request import urlopen
 
-import streamlit as st
+import httpx
+from starlette.applications import Starlette
+from starlette.background import BackgroundTask
+from starlette.requests import Request
+from starlette.responses import JSONResponse, StreamingResponse
+from starlette.routing import Route
 
 
-@st.cache_resource
-def start_nookwire() -> tuple[int, str]:
-    root = Path(__file__).resolve().parent
-    start = subprocess.run(
-        [sys.executable, "-m", "nookwire_ssh.cli", "start", str(root), "--accept"],
-        cwd=root,
+ROOT = Path(__file__).resolve().parent
+NODE_VERSION = "22.23.2"
+HAWK_PORT = 9000
+HOP_BY_HOP = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+}
+
+
+def install_node() -> Path:
+    machine = platform.machine().lower()
+    arch = "arm64" if machine in {"arm64", "aarch64"} else "x64"
+    system = "darwin" if platform.system() == "Darwin" else "linux"
+    extension = "tar.gz" if system == "darwin" else "tar.xz"
+    cache = Path.home() / ".cache" / "hawk" / f"node-v{NODE_VERSION}-{system}-{arch}"
+    binary = cache / "bin" / "node"
+    if binary.exists():
+        return binary
+
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    url = f"https://nodejs.org/dist/v{NODE_VERSION}/node-v{NODE_VERSION}-{system}-{arch}.{extension}"
+    print(f"event=hawk_node_install version={NODE_VERSION} system={system} arch={arch}", flush=True)
+    with urlopen(url, timeout=120) as response:
+        archive = tarfile.open(fileobj=io.BytesIO(response.read()), mode="r:*")
+    archive.extractall(cache.parent, filter="data")
+    return binary
+
+
+def start_nookwire() -> None:
+    started = subprocess.run(
+        [sys.executable, "-m", "nookwire_ssh.cli", "start", str(ROOT), "--accept"],
+        cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         timeout=90,
     )
-    output = start.stdout.strip()
-
-    if start.returncode == 0:
-        connect = subprocess.run(
+    output = started.stdout.strip()
+    if started.returncode == 0:
+        connected = subprocess.run(
             [sys.executable, "-m", "nookwire_ssh.cli", "connect"],
-            cwd=root,
+            cwd=ROOT,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             timeout=10,
         )
-        output = "\n\n".join(part for part in (output, connect.stdout.strip()) if part)
-
+        output = "\n\n".join(part for part in (output, connected.stdout.strip()) if part)
     print(output, flush=True)
-    return start.returncode, output
 
 
-ssh_status, ssh_info = start_nookwire()
+def start_hawk() -> subprocess.Popen[bytes]:
+    node = install_node()
+    node_bin = node.parent
+    env = os.environ.copy()
+    env["PATH"] = f"{node_bin}:{env.get('PATH', '')}"
+    print("event=hawk_dependencies_install", flush=True)
+    subprocess.run(
+        [node_bin / "npm", "ci", "--omit=dev", "--no-audit", "--no-fund"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        timeout=180,
+    )
 
-st.title("🎈 My new app")
-st.write(
-    "Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
+    env.update({"PORT": str(HAWK_PORT), "DL_DIR": "/tmp/hawk-downloads"})
+    process = subprocess.Popen(
+        [node, ROOT / "node_modules" / "tsx" / "dist" / "cli.mjs", "src/server.ts"],
+        cwd=ROOT,
+        env=env,
+        start_new_session=True,
+    )
+
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"Hawk exited during startup with code {process.returncode}")
+        try:
+            with urlopen(f"http://127.0.0.1:{HAWK_PORT}/health", timeout=1) as response:
+                if response.status == 200:
+                    print(f"event=hawk_ready port={HAWK_PORT}", flush=True)
+                    return process
+        except OSError:
+            time.sleep(0.25)
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    raise TimeoutError("Hawk did not become healthy within 30 seconds")
+
+
+@asynccontextmanager
+async def lifespan(application: Starlette):
+    nookwire_task = asyncio.create_task(asyncio.to_thread(start_nookwire))
+    hawk = await asyncio.to_thread(start_hawk)
+    application.state.client = httpx.AsyncClient(
+        base_url=f"http://127.0.0.1:{HAWK_PORT}", timeout=None
+    )
+    try:
+        yield
+    finally:
+        await application.state.client.aclose()
+        try:
+            os.killpg(os.getpgid(hawk.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            await asyncio.wait_for(asyncio.to_thread(hawk.wait), timeout=5)
+        except TimeoutError:
+            try:
+                os.killpg(os.getpgid(hawk.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                hawk.kill()
+        if not nookwire_task.done():
+            nookwire_task.cancel()
+
+
+async def health(_: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
+async def proxy(request: Request) -> StreamingResponse:
+    client: httpx.AsyncClient = request.app.state.client
+    target = request.url.path
+    if request.url.query:
+        target += f"?{request.url.query}"
+    headers = {
+        key: value
+        for key, value in request.headers.items()
+        if key.lower() not in HOP_BY_HOP and key.lower() != "host"
+    }
+    body = await request.body() if request.method not in ("GET", "HEAD") else None
+    upstream = await client.send(
+        client.build_request(
+            request.method,
+            target,
+            headers=headers,
+            content=body,
+        ),
+        stream=True,
+    )
+    response_headers = {
+        key: value
+        for key, value in upstream.headers.items()
+        if key.lower() not in HOP_BY_HOP
+    }
+    return StreamingResponse(
+        upstream.aiter_raw(),
+        status_code=upstream.status_code,
+        headers=response_headers,
+        background=BackgroundTask(upstream.aclose),
+    )
+
+
+app = Starlette(
+    lifespan=lifespan,
+    routes=[
+        Route("/_stcore/health", health),
+        Route("/{path:path}", proxy, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]),
+    ],
 )
-
-st.subheader("SSH access")
-if ssh_status == 0:
-    st.warning("Authentication is disabled. Anyone with these connection details can connect.")
-else:
-    st.error("Nookwire SSH failed to start.")
-st.code(ssh_info or "Nookwire SSH produced no output.", language="text")

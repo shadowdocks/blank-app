@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#0b0a09" />
+<title>Hawk</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="wrap masthead-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">Hawk</span>
+    </div>
+    <p class="brand-tag">Pick a mood. Get one thing to watch.</p>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+
+  <form id="picker" class="picker" novalidate>
+    <fieldset class="field">
+      <legend class="field-label">
+        <span class="step">1</span> Mood
+      </legend>
+      <div class="mood-grid" id="mood-grid"></div>
+    </fieldset>
+
+    <div class="field-row">
+      <fieldset class="field">
+        <legend class="field-label"><span class="step">2</span> Format</legend>
+        <div class="seg" id="type-seg"></div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend class="field-label"><span class="step">3</span> Time</legend>
+        <div class="seg" id="time-seg"></div>
+      </fieldset>
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary btn-lg" id="pick-btn">
+        Find something
+      </button>
+      <p class="hint" id="picker-hint"></p>
+    </div>
+  </form>
+
+  <section class="stage" id="stage" aria-live="polite" aria-busy="false">
+    <div class="stage-empty" id="stage-empty">
+      <p>Nothing picked yet.</p>
+    </div>
+  </section>
+
+  <section class="panel" id="sources-panel" hidden aria-labelledby="sources-title">
+    <h2 class="panel-title" id="sources-title">Streams</h2>
+    <div id="sources-body"></div>
+  </section>
+
+  <section class="panel" id="player-panel" hidden aria-labelledby="player-title">
+    <h2 class="panel-title" id="player-title">Now playing</h2>
+    <div id="player-body"></div>
+  </section>
+
+</main>
+
+<footer class="wrap foot">
+  <p>Hawk streams from sources you provide. Nothing is stored.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
