@@ -184,7 +184,10 @@ async def proxy(request: Request) -> StreamingResponse:
 app = Starlette(
     lifespan=lifespan,
     routes=[
-        Route("/_stcore/health", health),
+        Route("/_stcore/health", health, methods=["GET", "HEAD"]),
+        Route("/_stcore/health/", health, methods=["GET", "HEAD"]),
+        Route("/healthz", health, methods=["GET", "HEAD"]),
+        Route("/health", health, methods=["GET", "HEAD"]),
         Route("/{path:path}", proxy, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]),
     ],
 )
