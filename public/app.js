@@ -246,7 +246,7 @@
     resetDownstream();
 
     var url =
-      "/api/recommend?mood=" + encodeURIComponent(state.mood) +
+      "api/recommend?mood=" + encodeURIComponent(state.mood) +
       "&type=" + encodeURIComponent(state.type) +
       "&time=" + encodeURIComponent(state.time);
 
@@ -381,7 +381,7 @@
     setOnly(sourcesBody, statusBlock("Searching for streams..."));
     sourcesPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
-    request("/api/sources?title=" + encodeURIComponent(title))
+    request("api/sources?title=" + encodeURIComponent(title))
       .then(function (data) {
         var list = pickList(data).filter(function (s) {
           return s && (s.magnet || s.magnetLink || s.magnet_uri);
@@ -475,7 +475,7 @@
       if (done) done();
     }
 
-    request("/api/torrents", {
+    request("api/torrents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ magnet: magnet })
@@ -504,7 +504,7 @@
       function tick() {
         if (token !== state.playToken) return resolve();
         attempts++;
-        request("/api/torrents/" + encodeURIComponent(hash))
+        request("api/torrents/" + encodeURIComponent(hash))
           .then(function (data) {
             if (token !== state.playToken) return resolve();
             var video = data && data.video;
@@ -557,7 +557,7 @@
     v.playsInline = true;
     v.preload = "auto";
     v.src =
-      "/api/stream/" + encodeURIComponent(hash) + "/" + encodeURIComponent(video);
+      "api/stream/" + encodeURIComponent(hash) + "/" + encodeURIComponent(video);
     v.addEventListener("error", function () {
       setOnly(
         playerBody,
