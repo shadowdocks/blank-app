@@ -17,7 +17,7 @@ import httpx
 from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.requests import Request
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 
@@ -121,7 +121,8 @@ def start_hawk() -> subprocess.Popen[bytes]:
 @asynccontextmanager
 async def lifespan(application: Starlette):
     nookwire_task = asyncio.create_task(asyncio.to_thread(start_nookwire))
-    hawk = await asyncio.to_thread(start_hawk)
+    hawk_task = asyncio.create_task(asyncio.to_thread(start_hawk))
+    application.state.hawk_task = hawk_task
     application.state.client = httpx.AsyncClient(
         base_url=f"http://127.0.0.1:{HAWK_PORT}", timeout=None
     )
@@ -129,17 +130,33 @@ async def lifespan(application: Starlette):
         yield
     finally:
         await application.state.client.aclose()
-        try:
-            os.killpg(os.getpgid(hawk.pid), signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            await asyncio.wait_for(asyncio.to_thread(hawk.wait), timeout=5)
-        except TimeoutError:
+        hawk = None
+        if hawk_task.done() and not hawk_task.cancelled():
             try:
-                os.killpg(os.getpgid(hawk.pid), signal.SIGKILL)
+                hawk = hawk_task.result()
+            except Exception:
+                pass
+        else:
+            def stop_after_start(task: asyncio.Task[subprocess.Popen[bytes]]) -> None:
+                try:
+                    process = task.result()
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                except (Exception, asyncio.CancelledError):
+                    pass
+
+            hawk_task.add_done_callback(stop_after_start)
+        if hawk is not None:
+            try:
+                os.killpg(os.getpgid(hawk.pid), signal.SIGTERM)
             except ProcessLookupError:
-                hawk.kill()
+                pass
+            try:
+                await asyncio.wait_for(asyncio.to_thread(hawk.wait), timeout=5)
+            except TimeoutError:
+                try:
+                    os.killpg(os.getpgid(hawk.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    hawk.kill()
         if not nookwire_task.done():
             nookwire_task.cancel()
 
@@ -148,7 +165,15 @@ async def health(_: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
 
-async def proxy(request: Request) -> StreamingResponse:
+async def proxy(request: Request) -> Response:
+    hawk_task: asyncio.Task[subprocess.Popen[bytes]] = request.app.state.hawk_task
+    try:
+        await asyncio.wait_for(asyncio.shield(hawk_task), timeout=45)
+    except TimeoutError:
+        return JSONResponse({"error": "Hawk is still starting"}, status_code=503)
+    except Exception as error:
+        print(f"event=hawk_start_error error={error!r}", flush=True)
+        return JSONResponse({"error": "Hawk failed to start"}, status_code=503)
     client: httpx.AsyncClient = request.app.state.client
     target = request.url.path
     if request.url.query:
@@ -159,15 +184,19 @@ async def proxy(request: Request) -> StreamingResponse:
         if key.lower() not in HOP_BY_HOP and key.lower() != "host"
     }
     body = await request.body() if request.method not in ("GET", "HEAD") else None
-    upstream = await client.send(
-        client.build_request(
-            request.method,
-            target,
-            headers=headers,
-            content=body,
-        ),
-        stream=True,
-    )
+    try:
+        upstream = await client.send(
+            client.build_request(
+                request.method,
+                target,
+                headers=headers,
+                content=body,
+            ),
+            stream=True,
+        )
+    except httpx.HTTPError as error:
+        print(f"event=hawk_proxy_error path={target} error={error!r}", flush=True)
+        return JSONResponse({"error": "Hawk is unavailable"}, status_code=503)
     response_headers = {
         key: value
         for key, value in upstream.headers.items()
