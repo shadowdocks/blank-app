@@ -2,6 +2,10 @@
 (function () {
   "use strict";
 
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: "GUEST_READY", stCommVersion: 1 }, "*");
+  }
+
   var MOODS = [
     { id: "cozy", name: "Cozy", note: "Warm, low stakes" },
     { id: "thrilling", name: "Thrilling", note: "Tension and pace" },
