@@ -9,8 +9,10 @@ Streamlit runs this repository as an ASGI application on port 8501. Its Python e
 - Mood, movie or TV, and duration selection
 - TMDB recommendations with a curated offline fallback
 - Torrent source search
-- WebTorrent 2.8.5 with TCP, uTP, DHT, and tracker peer discovery
+- React, shadcn, Radix primitives, Tailwind CSS, and tokenized styling
+- WebTorrent 3.0.21 with TCP, uTP, DHT, and tracker peer discovery
 - HTTP Range video streaming
+- Refresh-safe picker, recommendation, source, and playback state
 - Nookwire SSH startup with authentication disabled
 
 There is no library, history, account system, Plex integration, subtitle manager, or persistent database.
@@ -27,16 +29,16 @@ Without it, Hawk uses the bundled recommendations. The app and SSH endpoint do n
 
 ## Local development
 
-Requires Python 3.14, `uv`, and Node 22.
+Requires Python 3.14, `uv`, Bun 1.4, and Node 22.
 
 ```sh
 uv sync
-npm ci
+bun install --frozen-lockfile
 uv run streamlit run streamlit_app.py
 ```
 
 The launcher uses its pinned Node runtime in production. To run only the internal Hawk server while editing the frontend:
 
 ```sh
-npm start
+bun run dev
 ```

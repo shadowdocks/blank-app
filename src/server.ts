@@ -1,15 +1,41 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
+import { extname } from "node:path";
 import { Readable } from "node:stream";
 
 import { recommend } from "./recommend";
 import { sources } from "./sources";
 import { startTorrent, streamTorrent, torrentStatus } from "./torrent";
 
-const root = new URL("../public/", import.meta.url);
+const root = new URL("../dist/", import.meta.url);
+const contentTypes: Record<string, string> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+};
 
-async function staticFile(name: string, type: string): Promise<Response> {
-  return new Response(await readFile(new URL(name, root)), { headers: { "content-type": type } });
+async function staticFile(pathname: string): Promise<Response> {
+  const name = decodeURIComponent(pathname).replace(/^\/+/, "") || "index.html";
+  const target = new URL(name, root);
+  if (!target.href.startsWith(root.href)) return Response.json({ error: "Not found." }, { status: 404 });
+  try {
+    const body = await readFile(target);
+    return new Response(body, {
+      headers: {
+        "cache-control": name === "index.html" ? "no-cache" : "public, max-age=31536000, immutable",
+        "content-type": contentTypes[extname(name)] ?? "application/octet-stream",
+      },
+    });
+  } catch {
+    return Response.json({ error: "Not found." }, { status: 404 });
+  }
 }
 
 async function bodyOf(request: IncomingMessage): Promise<Buffer | undefined> {
@@ -36,10 +62,7 @@ async function handle(request: Request): Promise<Response> {
     if (status && request.method === "GET") return torrentStatus(status[1]);
     const stream = /^\/api\/stream\/([a-f0-9]{40}|[2-7a-z]{32})\/(\d+)$/i.exec(url.pathname);
     if (stream && (request.method === "GET" || request.method === "HEAD")) return streamTorrent(request, stream[1], stream[2]);
-    if (url.pathname === "/" || url.pathname === "/index.html") return staticFile("index.html", "text/html; charset=utf-8");
-    if (url.pathname === "/styles.css") return staticFile("styles.css", "text/css; charset=utf-8");
-    if (url.pathname === "/app.js") return staticFile("app.js", "text/javascript; charset=utf-8");
-    return Response.json({ error: "Not found." }, { status: 404 });
+    return staticFile(url.pathname);
 }
 
 async function serve(request: IncomingMessage, response: ServerResponse): Promise<void> {

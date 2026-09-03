@@ -12,6 +12,7 @@ import sys
 import tarfile
 import time
 from urllib.request import urlopen
+import zipfile
 
 import httpx
 from starlette.applications import Starlette
@@ -23,6 +24,7 @@ from starlette.routing import Route
 
 ROOT = Path(__file__).resolve().parent
 NODE_VERSION = "22.23.2"
+BUN_VERSION = "1.4.0"
 HAWK_PORT = 9000
 HOP_BY_HOP = {
     "connection",
@@ -55,6 +57,29 @@ def install_node() -> Path:
     return binary
 
 
+def install_bun() -> Path:
+    machine = platform.machine().lower()
+    arch = "aarch64" if machine in {"arm64", "aarch64"} else "x64"
+    system = "darwin" if platform.system() == "Darwin" else "linux"
+    if system == "darwin" and arch == "aarch64":
+        arch = "aarch64"
+    cache = Path.home() / ".cache" / "hawk" / f"bun-v{BUN_VERSION}-{system}-{arch}"
+    binary = cache / "bun"
+    if binary.exists():
+        return binary
+
+    cache.mkdir(parents=True, exist_ok=True)
+    folder = f"bun-{system}-{arch}"
+    url = f"https://github.com/oven-sh/bun/releases/download/bun-v{BUN_VERSION}/{folder}.zip"
+    print(f"event=hawk_bun_install version={BUN_VERSION} system={system} arch={arch}", flush=True)
+    with urlopen(url, timeout=120) as response:
+        archive = zipfile.ZipFile(io.BytesIO(response.read()))
+        with archive.open(f"{folder}/bun") as source, binary.open("wb") as target:
+            target.write(source.read())
+    binary.chmod(0o755)
+    return binary
+
+
 def start_nookwire() -> None:
     started = subprocess.run(
         [sys.executable, "-m", "nookwire_ssh.cli", "start", str(ROOT), "--accept"],
@@ -80,17 +105,20 @@ def start_nookwire() -> None:
 
 def start_hawk() -> subprocess.Popen[bytes]:
     node = install_node()
+    bun = install_bun()
     node_bin = node.parent
     env = os.environ.copy()
-    env["PATH"] = f"{node_bin}:{env.get('PATH', '')}"
+    env["PATH"] = f"{node_bin}:{bun.parent}:{env.get('PATH', '')}"
     print("event=hawk_dependencies_install", flush=True)
     subprocess.run(
-        [node_bin / "npm", "ci", "--omit=dev", "--no-audit", "--no-fund"],
+        [bun, "install", "--frozen-lockfile"],
         cwd=ROOT,
         env=env,
         check=True,
         timeout=180,
     )
+    print("event=hawk_frontend_build", flush=True)
+    subprocess.run([bun, "run", "build"], cwd=ROOT, env=env, check=True, timeout=120)
 
     env.update({"PORT": str(HAWK_PORT), "DL_DIR": "/tmp/hawk-downloads"})
     process = subprocess.Popen(
