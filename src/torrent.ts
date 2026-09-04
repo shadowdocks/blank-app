@@ -2,7 +2,24 @@ import { Readable } from "node:stream";
 import WebTorrent from "webtorrent";
 
 const directory = process.env.DL_DIR ?? "/tmp/hawk-downloads";
-const client = new WebTorrent({ maxConns: 150, dht: { concurrency: 48 }, utp: true });
+const liveTrackers = [
+  "udp://tracker.opentrackr.org:1337/announce",
+  "udp://open.demonii.com:1337/announce",
+  "udp://open.stealth.si:80/announce",
+  "udp://tracker.torrent.eu.org:451/announce",
+  "udp://exodus.desync.com:6969/announce",
+  "udp://tracker.bittor.pw:1337/announce",
+  "udp://open.tracker.cl:1337/announce",
+  "udp://tracker.openbittorrent.com:6969/announce",
+  "udp://tracker.dler.org:6969/announce",
+  "udp://explodie.org:6969/announce",
+  "udp://tracker.moeking.me:6969/announce",
+  "udp://tracker-udp.gbitt.info:80/announce",
+  "udp://opentracker.io:6969/announce",
+  "udp://tracker.tiny-vps.com:6969/announce",
+  "https://tracker.tamersunion.org:443/announce",
+];
+const client = new WebTorrent({ maxConns: 200, dht: { concurrency: 64 }, utp: true });
 const videoPattern = /\.(mp4|m4v|mkv|webm|mov|avi|ts)$/i;
 const startedAt = new WeakMap<object, number>();
 const lastEvent = new WeakMap<object, string>();
@@ -57,7 +74,12 @@ export function startTorrent(magnet: string): Response {
       if (error) console.error(`event=torrent_remove_error hash=${active.infoHash}`, String(error));
     });
   }
-  const torrent = client.add(magnet, { path: directory });
+  const torrent = client.add(magnet, {
+    path: directory,
+    announce: liveTrackers,
+    storeCacheSlots: 64,
+    getAnnounceOpts: () => ({ numwant: 200 }),
+  } as any);
   torrentsByHash.set(hash, torrent);
   startedAt.set(torrent, Date.now());
   lastEvent.set(torrent, "resolving_metadata");
@@ -68,7 +90,10 @@ export function startTorrent(magnet: string): Response {
   torrent.once("metadata", () => {
     lastEvent.set(torrent, "metadata_ready");
     console.log(`event=torrent_metadata hash=${hash} files=${torrent.files.length}`);
-    torrent.deselect(0, torrent.pieces.length - 1, false);
+    // Keep the selected movie downloading at low priority to saturate available
+    // peers. Range streams use WebTorrent's higher stream priority for playback.
+    torrent.deselect(0, torrent.pieces.length - 1);
+    videoFile(torrent.files)?.select(0);
   });
   torrent.once("wire", () => {
     lastEvent.set(torrent, "peer_connected");

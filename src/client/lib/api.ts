@@ -1,8 +1,11 @@
+import { mountPath } from "@/lib/router"
 import type { MediaType, Source, TimeBucket, Title, TorrentStatus } from "@/lib/types"
 
 /**
  * Every path here is mount-relative on purpose. Streamlit serves this app from
- * a nested mount, so a root-absolute "/api/..." would escape it and 404.
+ * a nested mount, so a root-absolute "/api/..." would escape it and 404. The
+ * paths are joined onto the mount rather than left relative to the document,
+ * because a deep route like /app/movie/603 would otherwise resolve them wrong.
  */
 export class ApiError extends Error {
   readonly status: number
@@ -26,7 +29,7 @@ export function isAbort(error: unknown): boolean {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(path, init)
+    response = await fetch(mountPath(path), init)
   } catch (error) {
     if (isAbort(error)) throw error
     throw new ApiError("Network unreachable. Check your connection and retry.", 0)
@@ -77,13 +80,36 @@ function toStatus(raw: RawStatus): TorrentStatus {
   }
 }
 
+function usable(results: unknown): Title[] {
+  return Array.isArray(results) ? (results as Title[]).filter((item) => item && item.title) : []
+}
+
 export async function fetchRecommendations(
   params: { mood: string; type: MediaType; time: TimeBucket },
   signal?: AbortSignal,
 ): Promise<Title[]> {
   const query = new URLSearchParams({ mood: params.mood, type: params.type, time: params.time })
   const data = await request<{ results?: Title[] }>(`api/recommend?${query}`, { signal })
-  return Array.isArray(data.results) ? data.results.filter((item) => item && item.title) : []
+  return usable(data.results)
+}
+
+/** Hydrates a title from its route alone, so a shared link opens anywhere. */
+export async function fetchTitle(
+  type: MediaType,
+  id: string,
+  signal?: AbortSignal,
+): Promise<Title> {
+  const query = new URLSearchParams({ type, id })
+  const data = await request<{ result?: Title }>(`api/title?${query}`, { signal })
+  const result = data.result
+  if (!result || !result.title) throw new ApiError("That title could not be found.", 404)
+  return result
+}
+
+export async function searchTitles(query: string, signal?: AbortSignal): Promise<Title[]> {
+  const params = new URLSearchParams({ q: query })
+  const data = await request<{ results?: Title[] }>(`api/search?${params}`, { signal })
+  return usable(data.results)
 }
 
 export async function fetchSources(title: string, signal?: AbortSignal): Promise<Source[]> {
@@ -108,5 +134,5 @@ export async function fetchTorrent(infoHash: string, signal?: AbortSignal): Prom
 }
 
 export function streamUrl(infoHash: string, video: number): string {
-  return `api/stream/${encodeURIComponent(infoHash)}/${encodeURIComponent(String(video))}`
+  return mountPath(`api/stream/${encodeURIComponent(infoHash)}/${encodeURIComponent(String(video))}`)
 }

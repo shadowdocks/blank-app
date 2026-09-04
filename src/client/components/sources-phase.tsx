@@ -1,13 +1,93 @@
-import { ArrowLeft, Loader2, Play, RotateCcw, Users } from "lucide-react"
+import { useState } from "react"
+import { ArrowLeft, Link2, Loader2, Play, RotateCcw, Users } from "lucide-react"
 
+import { EmptyState } from "@/components/empty-state"
 import { Notice } from "@/components/notice"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupCard } from "@/components/ui/radio-group"
 import type { Source } from "@/lib/types"
 
+const MAGNET_PREFIX = "magnet:?"
+
 function SkeletonRow() {
   return (
-    <div className="h-[62px] animate-pulse rounded-md border border-border bg-card" aria-hidden="true" />
+    <div
+      className="h-[62px] animate-pulse rounded-md border border-border bg-card"
+      aria-hidden="true"
+    />
+  )
+}
+
+/** Power-user escape hatch: start a stream from a magnet the user already has. */
+function MagnetForm({
+  starting,
+  onStart,
+}: {
+  starting: boolean
+  onStart: (magnet: string) => void
+}) {
+  const [magnet, setMagnet] = useState("")
+  const [invalid, setInvalid] = useState(false)
+
+  return (
+    <form
+      className="space-y-3 rounded-md border border-border px-4 py-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const value = magnet.trim()
+        if (!value.toLowerCase().startsWith(MAGNET_PREFIX)) {
+          setInvalid(true)
+          return
+        }
+        setInvalid(false)
+        onStart(value)
+      }}
+    >
+      <div className="space-y-1">
+        <label htmlFor="magnet-url" className="text-sm font-medium">
+          Magnet URL
+        </label>
+        <p id="magnet-hint" className="text-xs text-muted-foreground">
+          Optional. Paste a magnet link to stream it directly, skipping the list above.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          id="magnet-url"
+          name="magnet"
+          value={magnet}
+          onChange={(event) => {
+            setMagnet(event.target.value)
+            if (invalid) setInvalid(false)
+          }}
+          placeholder="magnet:?xt=urn:btih:..."
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? "magnet-hint magnet-error" : "magnet-hint"}
+          className="font-mono text-xs sm:text-sm"
+        />
+        <Button
+          type="submit"
+          size="lg"
+          variant="secondary"
+          className="sm:shrink-0"
+          disabled={starting || !magnet.trim()}
+        >
+          <Link2 data-icon="inline-start" aria-hidden="true" />
+          Start magnet
+        </Button>
+      </div>
+
+      {invalid ? (
+        <p id="magnet-error" role="alert" className="text-xs text-destructive">
+          That is not a magnet link. It has to start with {MAGNET_PREFIX}
+        </p>
+      ) : null}
+    </form>
   )
 }
 
@@ -30,7 +110,7 @@ export function SourcesPhase({
   starting: boolean
   error: string | null
   onSelect: (magnet: string) => void
-  onStart: () => void
+  onStart: (magnet: string) => void
   onRetry: () => void
   onBack: () => void
 }) {
@@ -70,22 +150,19 @@ export function SourcesPhase({
       ) : null}
 
       {empty ? (
-        <div className="rounded-md border border-border bg-card px-4 py-8 text-center">
-          <p className="text-sm font-medium">No sources found</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-            Nothing is seeding this title right now. Try again, or go back and pick another.
-          </p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            <Button size="sm" onClick={onRetry}>
-              <RotateCcw data-icon="inline-start" aria-hidden="true" />
-              Search again
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onBack}>
-              <ArrowLeft data-icon="inline-start" aria-hidden="true" />
-              Back to title
-            </Button>
-          </div>
-        </div>
+        <EmptyState
+          title="No sources found"
+          description="Nothing is seeding this title right now. Try again, go back and pick another, or paste a magnet link below."
+        >
+          <Button size="sm" onClick={onRetry}>
+            <RotateCcw data-icon="inline-start" aria-hidden="true" />
+            Search again
+          </Button>
+          <Button size="sm" variant="ghost" onClick={onBack}>
+            <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+            Back to title
+          </Button>
+        </EmptyState>
       ) : null}
 
       {sources.length ? (
@@ -113,7 +190,11 @@ export function SourcesPhase({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="lg" onClick={onStart} disabled={!selectedMagnet || starting}>
+        <Button
+          size="lg"
+          onClick={() => selectedMagnet && onStart(selectedMagnet)}
+          disabled={!selectedMagnet || starting}
+        >
           {starting ? (
             <Loader2 className="animate-spin" aria-hidden="true" />
           ) : (
@@ -126,6 +207,8 @@ export function SourcesPhase({
           Back to title
         </Button>
       </div>
+
+      <MagnetForm starting={starting} onStart={onStart} />
     </section>
   )
 }

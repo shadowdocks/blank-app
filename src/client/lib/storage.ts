@@ -1,19 +1,27 @@
 import { MOOD_IDS, TIME_IDS, TYPE_IDS } from "@/lib/options"
-import { PHASES, phaseFromHash, reachablePhase } from "@/lib/phase"
-import type { ActiveTorrent, MediaType, Phase, Session, Source, TimeBucket, Title } from "@/lib/types"
+import type {
+  ActiveTorrent,
+  MediaType,
+  Session,
+  Source,
+  TimeBucket,
+  Title,
+  TorrentOrigin,
+} from "@/lib/types"
 
-const KEY = "hawk.session.v1"
+const KEY = "hawk.session.v2"
+const SEARCHES_KEY = "hawk.searches.v1"
+const MAX_SEARCHES = 6
 
 export const DEFAULT_SESSION: Session = {
   mood: "cozy",
   type: "movie",
   time: "standard",
   titles: [],
-  titleIndex: 0,
   sources: [],
+  sourcesFor: null,
   selectedMagnet: null,
   torrent: null,
-  phase: "pick",
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -31,7 +39,7 @@ function toTitle(value: unknown): Title | null {
   const title = item && text(item.title)
   if (!item || !title) return null
   return {
-    id: typeof item.id === "number" ? item.id : null,
+    id: typeof item.id === "number" ? item.id : text(item.id),
     mediaType: item.mediaType === "tv" || item.mediaType === "movie" ? item.mediaType : null,
     title,
     year: text(item.year),
@@ -60,6 +68,14 @@ function toSource(value: unknown): Source | null {
   }
 }
 
+function toOrigin(value: unknown): TorrentOrigin | null {
+  const item = record(value)
+  const id = item && text(item.id)
+  if (!item || !id) return null
+  if (item.type !== "movie" && item.type !== "tv") return null
+  return { type: item.type, id }
+}
+
 function toTorrent(value: unknown): ActiveTorrent | null {
   const item = record(value)
   const infoHash = item && text(item.infoHash)
@@ -70,6 +86,7 @@ function toTorrent(value: unknown): ActiveTorrent | null {
     magnet,
     video: typeof item.video === "number" ? item.video : null,
     name: text(item.name) ?? "Stream",
+    origin: toOrigin(item.origin),
   }
 }
 
@@ -83,19 +100,16 @@ function parse(raw: string): Session {
   const sources = Array.isArray(stored.sources)
     ? stored.sources.map(toSource).filter((item): item is Source => item !== null)
     : []
-  const index = Number(stored.titleIndex)
-  const phase = stored.phase
 
   const session: Session = {
     mood: MOOD_IDS.has(String(stored.mood)) ? String(stored.mood) : DEFAULT_SESSION.mood,
     type: TYPE_IDS.has(String(stored.type)) ? (stored.type as MediaType) : DEFAULT_SESSION.type,
     time: TIME_IDS.has(String(stored.time)) ? (stored.time as TimeBucket) : DEFAULT_SESSION.time,
     titles,
-    titleIndex: Number.isInteger(index) && index >= 0 && index < titles.length ? index : 0,
     sources,
+    sourcesFor: text(stored.sourcesFor),
     selectedMagnet: text(stored.selectedMagnet),
     torrent: toTorrent(stored.torrent),
-    phase: PHASES.includes(phase as Phase) ? (phase as Phase) : "pick",
   }
   if (session.selectedMagnet && !sources.some((item) => item.magnet === session.selectedMagnet)) {
     session.selectedMagnet = sources[0]?.magnet ?? null
@@ -103,17 +117,14 @@ function parse(raw: string): Session {
   return session
 }
 
-/** Storage plus the URL hash decide the opening phase; the hash wins when valid. */
+/** Recovery data only; the URL decides which screen and title are shown. */
 export function loadSession(): Session {
-  let session = DEFAULT_SESSION
   try {
     const raw = window.localStorage.getItem(KEY)
-    if (raw) session = parse(raw)
+    return raw ? parse(raw) : DEFAULT_SESSION
   } catch {
-    session = DEFAULT_SESSION
+    return DEFAULT_SESSION
   }
-  const requested = phaseFromHash(window.location.hash) ?? session.phase
-  return { ...session, phase: reachablePhase(session, requested) }
 }
 
 export function saveSession(session: Session): void {
@@ -121,5 +132,42 @@ export function saveSession(session: Session): void {
     window.localStorage.setItem(KEY, JSON.stringify(session))
   } catch {
     // Private-mode or quota failures must not break playback.
+  }
+}
+
+export function loadRecentSearches(): string[] {
+  try {
+    const raw = window.localStorage.getItem(SEARCHES_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .slice(0, MAX_SEARCHES)
+  } catch {
+    return []
+  }
+}
+
+/** Returns the new list so the caller can render it without a second read. */
+export function saveRecentSearch(query: string): string[] {
+  const value = query.trim()
+  if (!value) return loadRecentSearches()
+  const next = [value, ...loadRecentSearches().filter((item) => item !== value)].slice(
+    0,
+    MAX_SEARCHES
+  )
+  try {
+    window.localStorage.setItem(SEARCHES_KEY, JSON.stringify(next))
+  } catch {
+    // Nothing to do; recent searches are a convenience.
+  }
+  return next
+}
+
+export function clearRecentSearches(): void {
+  try {
+    window.localStorage.removeItem(SEARCHES_KEY)
+  } catch {
+    // Nothing to do.
   }
 }

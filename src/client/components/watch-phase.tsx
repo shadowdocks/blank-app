@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react"
-import { ArrowLeft, Gauge, HardDrive, Loader2, ListVideo, RotateCcw, Users } from "lucide-react"
+import {
+  ArrowLeft,
+  Gauge,
+  HardDrive,
+  House,
+  ListVideo,
+  Loader2,
+  RotateCcw,
+  Users,
+} from "lucide-react"
 
 import { Notice } from "@/components/notice"
 import { Button } from "@/components/ui/button"
@@ -48,14 +57,17 @@ export function WatchPhase({
   error,
   onRetry,
   onChangeSource,
-  onBack,
+  onBackToTitle,
+  onHome,
 }: {
   torrent: ActiveTorrent
   status: TorrentStatus | null
   error: string | null
   onRetry: () => void
-  onChangeSource: () => void
-  onBack: () => void
+  /** Absent when the stream was recovered without a known title. */
+  onChangeSource?: () => void
+  onBackToTitle?: () => void
+  onHome: () => void
 }) {
   const video = status?.video ?? torrent.video
   const source = video === null ? null : streamUrl(torrent.infoHash, video)
@@ -108,10 +120,12 @@ export function WatchPhase({
                     <RotateCcw data-icon="inline-start" aria-hidden="true" />
                     Retry
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={onChangeSource}>
-                    <ListVideo data-icon="inline-start" aria-hidden="true" />
-                    Change source
-                  </Button>
+                  {onChangeSource ? (
+                    <Button size="sm" variant="secondary" onClick={onChangeSource}>
+                      <ListVideo data-icon="inline-start" aria-hidden="true" />
+                      Change source
+                    </Button>
+                  ) : null}
                 </div>
               </>
             ) : (
@@ -148,7 +162,11 @@ export function WatchPhase({
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="font-medium">
-              {status?.done ? "Download complete" : status ? eventLabel(status.lastEvent) : "Connecting"}
+              {status?.done
+                ? "Download complete"
+                : status
+                  ? eventLabel(status.lastEvent)
+                  : "Connecting"}
             </span>
             <span className="tabular-nums text-muted-foreground">
               {status?.metadata ? formatPercent(status.progress) : "Metadata pending"}
@@ -178,18 +196,27 @@ export function WatchPhase({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="secondary" size="lg" onClick={onChangeSource}>
-          <ListVideo data-icon="inline-start" aria-hidden="true" />
-          Change source
-        </Button>
+        {onChangeSource ? (
+          <Button variant="secondary" size="lg" onClick={onChangeSource}>
+            <ListVideo data-icon="inline-start" aria-hidden="true" />
+            Change source
+          </Button>
+        ) : null}
         <Button variant="ghost" size="lg" onClick={retry}>
           <RotateCcw data-icon="inline-start" aria-hidden="true" />
           Retry stream
         </Button>
-        <Button variant="ghost" size="lg" onClick={onBack}>
-          <ArrowLeft data-icon="inline-start" aria-hidden="true" />
-          Back to title
-        </Button>
+        {onBackToTitle ? (
+          <Button variant="ghost" size="lg" onClick={onBackToTitle}>
+            <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+            Back to title
+          </Button>
+        ) : (
+          <Button variant="ghost" size="lg" onClick={onHome}>
+            <House data-icon="inline-start" aria-hidden="true" />
+            Home
+          </Button>
+        )}
       </div>
     </section>
   )

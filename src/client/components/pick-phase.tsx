@@ -1,6 +1,7 @@
 import * as React from "react"
-import { ArrowRight, Loader2 } from "lucide-react"
+import { ArrowRight, Loader2, Search } from "lucide-react"
 
+import { AppLink } from "@/components/app-link"
 import { Notice } from "@/components/notice"
 import { Button } from "@/components/ui/button"
 import { RadioGroup, RadioGroupCard } from "@/components/ui/radio-group"
@@ -125,6 +126,12 @@ export function PickPhase({
             <ArrowRight data-icon="inline-end" aria-hidden="true" />
           )}
           {pending ? "Finding a title" : "Find something"}
+        </Button>
+        <Button asChild size="lg" variant="ghost">
+          <AppLink route={{ name: "search" }}>
+            <Search data-icon="inline-start" aria-hidden="true" />
+            Search by name
+          </AppLink>
         </Button>
         <p aria-live="polite" className="text-xs text-muted-foreground">
           {pending ? "Searching the catalogue." : ""}

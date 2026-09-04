@@ -27,7 +27,7 @@ export function useTorrentFeed(infoHash: string | null): TorrentFeed {
     setStatus(null)
     setError(null)
     setMissing(false)
-  }, [infoHash])
+  }, [infoHash, nonce])
 
   useEffect(() => {
     if (!infoHash) return

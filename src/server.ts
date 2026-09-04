@@ -4,6 +4,7 @@ import { extname } from "node:path";
 import { Readable } from "node:stream";
 
 import { recommend } from "./recommend";
+import { search, titleDetails } from "./catalog";
 import { sources } from "./sources";
 import { startTorrent, streamTorrent, torrentStatus } from "./torrent";
 
@@ -49,6 +50,8 @@ async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/health") return Response.json({ status: "ok" });
     if (url.pathname === "/api/recommend" && request.method === "GET") return recommend(url);
+    if (url.pathname === "/api/search" && request.method === "GET") return search(url);
+    if (url.pathname === "/api/title" && request.method === "GET") return titleDetails(url);
     if (url.pathname === "/api/sources" && request.method === "GET") return sources(url);
     if (url.pathname === "/api/torrents" && request.method === "POST") {
       try {
@@ -62,7 +65,9 @@ async function handle(request: Request): Promise<Response> {
     if (status && request.method === "GET") return torrentStatus(status[1]);
     const stream = /^\/api\/stream\/([a-f0-9]{40}|[2-7a-z]{32})\/(\d+)$/i.exec(url.pathname);
     if (stream && (request.method === "GET" || request.method === "HEAD")) return streamTorrent(request, stream[1], stream[2]);
-    return staticFile(url.pathname);
+    const builtAsset = url.pathname.match(/(\/assets\/[^/]+)$/)?.[1];
+    const publicAsset = url.pathname.match(/\/([^/]+\.[a-z0-9]+)$/i)?.[1];
+    return staticFile(builtAsset ?? (publicAsset ? `/${publicAsset}` : "/index.html"));
 }
 
 async function serve(request: IncomingMessage, response: ServerResponse): Promise<void> {

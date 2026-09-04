@@ -7,12 +7,13 @@ Streamlit runs this repository as an ASGI application on port 8501. Its Python e
 ## What is included
 
 - Mood, movie or TV, and duration selection
-- TMDB recommendations with a curated offline fallback
-- Torrent source search
+- Searchable IMDb catalog and shareable title URLs
+- TMDB recommendations with IMDb-enriched curated fallback
+- Indexed torrent source search and direct magnet input
 - React, shadcn, Radix primitives, Tailwind CSS, and tokenized styling
-- WebTorrent 3.0.21 with TCP, uTP, DHT, and tracker peer discovery
+- WebTorrent 3.0.21 with TCP, uTP, parallel DHT discovery, expanded trackers, and 200-peer announces
 - HTTP Range video streaming
-- Refresh-safe picker, recommendation, source, and playback state
+- History API routes with refresh-safe title, source, and playback state
 - Nookwire startup in noninteractive batch mode with authentication disabled
 
 There is no library, history, account system, Plex integration, subtitle manager, or persistent database.

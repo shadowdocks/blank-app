@@ -2,11 +2,10 @@ export type MediaType = "movie" | "tv"
 
 export type TimeBucket = "quick" | "standard" | "epic"
 
-export type Phase = "pick" | "title" | "sources" | "watch"
-
-/** A recommendation. TMDB and the curated fallback fill different subsets. */
+/** A recommendation or search hit. Different sources fill different subsets. */
 export interface Title {
-  id?: number | null
+  /** TMDB ids arrive as numbers, the IMDb fallback as "tt..." strings. */
+  id?: string | number | null
   mediaType?: MediaType | null
   title: string
   year?: string | null
@@ -45,22 +44,32 @@ export interface TorrentStatus {
   lastEvent: string
 }
 
+/** The title a stream came from, so /watch can route back after a reload. */
+export interface TorrentOrigin {
+  type: MediaType
+  id: string
+}
+
 export interface ActiveTorrent {
   infoHash: string
   video: number | null
   name: string
   magnet: string
+  origin: TorrentOrigin | null
 }
 
-/** Everything that survives a reload, mirrored into localStorage. */
+/**
+ * Everything that survives a reload, mirrored into localStorage. The URL owns
+ * the current screen and title; this is recovery data only.
+ */
 export interface Session {
   mood: string
   type: MediaType
   time: TimeBucket
   titles: Title[]
-  titleIndex: number
   sources: Source[]
+  /** Title the cached sources belong to, so a shared link cannot show stale ones. */
+  sourcesFor: string | null
   selectedMagnet: string | null
   torrent: ActiveTorrent | null
-  phase: Phase
 }
