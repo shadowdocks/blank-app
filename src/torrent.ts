@@ -1,4 +1,7 @@
 import { Readable } from "node:stream";
+import { readFileSync } from "node:fs";
+import { availableParallelism } from "node:os";
+import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import WebTorrent from "webtorrent";
 
 const directory = process.env.DL_DIR ?? "/tmp/hawk-downloads";
@@ -24,6 +27,59 @@ const videoPattern = /\.(mp4|m4v|mkv|webm|mov|avi|ts)$/i;
 const startedAt = new WeakMap<object, number>();
 const lastEvent = new WeakMap<object, string>();
 const torrentsByHash = new Map<string, any>();
+const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelay.enable();
+let previousCpu = process.cpuUsage();
+let previousUtilization = performance.eventLoopUtilization();
+let previousSampleAt = performance.now();
+let previousIo = processIo();
+let processSample = {
+  cpuPercent: 0,
+  eventLoopUtilization: 0,
+  eventLoopDelayP50Ms: 0,
+  eventLoopDelayP99Ms: 0,
+  eventLoopDelayMaxMs: 0,
+  diskReadBytesPerSecond: 0,
+  diskWriteBytesPerSecond: 0,
+};
+
+function processIo(): { readBytes: number; writeBytes: number } | null {
+  if (process.platform !== "linux") return null;
+  try {
+    const values = Object.fromEntries(
+      readFileSync("/proc/self/io", "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => line.split(/:\s+/, 2)),
+    );
+    return { readBytes: Number(values.read_bytes ?? 0), writeBytes: Number(values.write_bytes ?? 0) };
+  } catch {
+    return null;
+  }
+}
+
+const processSampler = setInterval(() => {
+  const now = performance.now();
+  const elapsedSeconds = Math.max((now - previousSampleAt) / 1000, 0.001);
+  const cpu = process.cpuUsage(previousCpu);
+  const utilization = performance.eventLoopUtilization(previousUtilization);
+  const io = processIo();
+  processSample = {
+    cpuPercent: Number(((cpu.user + cpu.system) / (elapsedSeconds * 10_000)).toFixed(1)),
+    eventLoopUtilization: Number((utilization.utilization * 100).toFixed(1)),
+    eventLoopDelayP50Ms: Number((eventLoopDelay.percentile(50) / 1e6).toFixed(1)),
+    eventLoopDelayP99Ms: Number((eventLoopDelay.percentile(99) / 1e6).toFixed(1)),
+    eventLoopDelayMaxMs: Number((eventLoopDelay.max / 1e6).toFixed(1)),
+    diskReadBytesPerSecond: io && previousIo ? Math.max(0, Math.round((io.readBytes - previousIo.readBytes) / elapsedSeconds)) : 0,
+    diskWriteBytesPerSecond: io && previousIo ? Math.max(0, Math.round((io.writeBytes - previousIo.writeBytes) / elapsedSeconds)) : 0,
+  };
+  previousCpu = process.cpuUsage();
+  previousUtilization = performance.eventLoopUtilization();
+  previousSampleAt = now;
+  previousIo = io;
+  eventLoopDelay.reset();
+}, 5000);
+processSampler.unref();
 
 client.on("error", (error: unknown) => console.error("event=torrent_client_error", String(error)));
 
@@ -34,6 +90,48 @@ function hashFromMagnet(magnet: string): string | null {
 function videoFile(files: any[]): any | null {
   const videos = files.filter((file) => videoPattern.test(file.name));
   return [...(videos.length ? videos : files)].sort((a, b) => b.length - a.length)[0] ?? null;
+}
+
+function diagnostics(torrent: any) {
+  const wires = (torrent.wires ?? []).map((wire: any) => ({
+    type: wire.type || "unknown",
+    downloadSpeed: Math.round(wire.downloadSpeed?.() ?? 0),
+    downloaded: wire.downloaded ?? 0,
+    peerChoking: Boolean(wire.peerChoking),
+    amInterested: Boolean(wire.amInterested),
+    requests: wire.requests?.length ?? 0,
+  }));
+  const byTransport: Record<string, number> = {};
+  for (const wire of wires) byTransport[wire.type] = (byTransport[wire.type] ?? 0) + 1;
+  const memory = process.memoryUsage();
+  const dht = (client as any).dht;
+  const dhtNodes = dht?.nodes?.count?.() ?? dht?._rpc?.nodes?.count?.() ?? null;
+  return {
+    peers: {
+      connected: wires.length,
+      unchoked: wires.filter((wire: any) => !wire.peerChoking).length,
+      interested: wires.filter((wire: any) => wire.amInterested).length,
+      active: wires.filter((wire: any) => wire.downloadSpeed > 1024).length,
+      pendingRequests: wires.reduce((total: number, wire: any) => total + wire.requests, 0),
+      measuredSpeed: wires.reduce((total: number, wire: any) => total + wire.downloadSpeed, 0),
+      byTransport,
+      fastest: [...wires]
+        .sort((left: any, right: any) => right.downloadSpeed - left.downloadSpeed)
+        .slice(0, 8),
+    },
+    engine: {
+      maxConnections: 200,
+      downloadLimit: (client as any)._downloadLimit ?? null,
+      dhtNodes,
+    },
+    process: {
+      ...processSample,
+      logicalCpus: availableParallelism(),
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      externalBytes: memory.external,
+    },
+  };
 }
 
 function json(torrent: any, fallbackHash?: string) {
@@ -123,6 +221,13 @@ export function torrentStatus(hash: string): Response {
     : Response.json({ error: "Torrent not found." }, { status: 404 });
 }
 
+export function torrentDiagnostics(hash: string): Response {
+  const torrent = findTorrent(hash);
+  return torrent
+    ? Response.json({ ...json(torrent), diagnostics: diagnostics(torrent) })
+    : Response.json({ error: "Torrent not found." }, { status: 404 });
+}
+
 function mime(name: string): string {
   const extension = name.split(".").pop()?.toLowerCase();
   return ({ mp4: "video/mp4", m4v: "video/x-m4v", mkv: "video/x-matroska", webm: "video/webm", mov: "video/quicktime", avi: "video/x-msvideo", ts: "video/mp2t" } as Record<string, string>)[extension ?? ""] ?? "application/octet-stream";
@@ -172,4 +277,10 @@ export function streamTorrent(request: Request, hash: string, index: string): Re
       strategy: new ByteLengthQueuingStrategy({ highWaterMark: 64 * 1024 }),
     }) as ReadableStream;
   return new Response(body, { status: range ? 206 : 200, headers });
+}
+
+export function closeTorrentClient(): Promise<void> {
+  eventLoopDelay.disable();
+  clearInterval(processSampler);
+  return new Promise((resolve) => client.destroy(() => resolve()));
 }

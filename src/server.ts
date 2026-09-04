@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
 import { recommend } from "./recommend";
 import { search, titleDetails } from "./catalog";
 import { sources } from "./sources";
-import { startTorrent, streamTorrent, torrentStatus } from "./torrent";
+import { startTorrent, streamTorrent, torrentDiagnostics, torrentStatus } from "./torrent";
 
 const root = new URL("../dist/", import.meta.url);
 const contentTypes: Record<string, string> = {
@@ -65,6 +65,8 @@ async function handle(request: Request): Promise<Response> {
     }
     const status = /^\/api\/torrents\/([a-f0-9]{40}|[2-7a-z]{32})$/i.exec(url.pathname);
     if (status && request.method === "GET") return torrentStatus(status[1]);
+    const diagnostic = /^\/api\/torrents\/([a-f0-9]{40}|[2-7a-z]{32})\/diagnostics$/i.exec(url.pathname);
+    if (diagnostic && request.method === "GET") return torrentDiagnostics(diagnostic[1]);
     const stream = /^\/api\/stream\/([a-f0-9]{40}|[2-7a-z]{32})\/(\d+)$/i.exec(url.pathname);
     if (stream && (request.method === "GET" || request.method === "HEAD")) return streamTorrent(request, stream[1], stream[2]);
     const builtAsset = url.pathname.match(/(\/assets\/[^/]+)$/)?.[1];

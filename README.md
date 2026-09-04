@@ -46,6 +46,16 @@ The launcher uses its pinned Node runtime in production. To run only the interna
 bun run dev
 ```
 
+Run the stored diagnostic torrent in an isolated temporary directory for 60 seconds:
+
+```sh
+npm run torrent:benchmark -- 60
+```
+
+Each five-second sample reports connected, unchoked, and active peers; transport types;
+outstanding piece requests; aggregate peer speed; CPU and event-loop utilization; event-loop
+delay; memory; disk throughput; and DHT size. The temporary download is deleted afterward.
+
 ## Streamlit Cloud operations
 
 Copy `.streamlit-cloud.example.json` to `.streamlit-cloud.json` and fill it with the authenticated values from a browser request. The local config is ignored by Git.

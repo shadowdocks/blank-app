@@ -11,6 +11,7 @@
     "cloud": "bun run scripts/streamlit-cloud.ts",
     "dev": "vite",
     "start": "tsx src/server.ts",
+    "torrent:benchmark": "tsx scripts/benchmark-torrent.ts",
     "typecheck": "tsc --noEmit && tsc --ignoreConfig --noEmit --target ESNext --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck scripts/streamlit-cloud.ts"
   },
   "dependencies": {
