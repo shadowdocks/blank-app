@@ -59,6 +59,25 @@ const INITIAL_STATE: AuthState = {
 let currentState: AuthState = { ...INITIAL_STATE }
 const listeners = new Set<() => void>()
 let initPromise: Promise<void> | null = null
+const AUTH_HINT_KEY = "hawk.auth_hint.v1"
+
+function hasAuthHint(): boolean {
+  try {
+    return typeof localStorage !== "undefined" && localStorage.getItem(AUTH_HINT_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function setAuthHint(authenticated: boolean): void {
+  try {
+    if (typeof localStorage === "undefined") return
+    if (authenticated) localStorage.setItem(AUTH_HINT_KEY, "1")
+    else localStorage.removeItem(AUTH_HINT_KEY)
+  } catch {
+    // Authentication still works when browser storage is unavailable.
+  }
+}
 
 type AuthHook = (user: AccountUser) => Promise<void> | void
 let registerHook: AuthHook | null = null
@@ -117,6 +136,7 @@ export async function initAuth(force = false): Promise<void> {
         error: null,
         isInitialized: true,
       }
+      setAuthHint(true)
       if (loginHook) {
         try {
           await loginHook(auth.user)
@@ -126,6 +146,7 @@ export async function initAuth(force = false): Promise<void> {
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
+        setAuthHint(false)
         currentState = {
           user: null,
           session: null,
@@ -168,6 +189,7 @@ export async function register(input: RegisterInput): Promise<AuthResponse> {
       error: null,
       isInitialized: true,
     }
+    setAuthHint(true)
     notify()
     if (registerHook) {
       try {
@@ -208,6 +230,7 @@ export async function login(input: LoginInput): Promise<AuthResponse> {
       error: null,
       isInitialized: true,
     }
+    setAuthHint(true)
     notify()
     if (loginHook) {
       try {
@@ -231,6 +254,7 @@ export async function login(input: LoginInput): Promise<AuthResponse> {
 }
 
 export function clearLocalSession(): void {
+  setAuthHint(false)
   clearSyncMetadata()
   clearSyncableState({ preservePreferences: true })
 
@@ -307,5 +331,15 @@ if (
   typeof fetch === "function" &&
   !(window as unknown as { __HAWK_TEST_ENV__?: boolean }).__HAWK_TEST_ENV__
 ) {
-  void initAuth()
+  if (hasAuthHint()) {
+    void initAuth()
+  } else {
+    currentState = {
+      user: null,
+      session: null,
+      status: "unauthenticated",
+      error: null,
+      isInitialized: true,
+    }
+  }
 }

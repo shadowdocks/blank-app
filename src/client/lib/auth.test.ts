@@ -168,6 +168,7 @@ describe("auth store and actions", () => {
       expect(snap.status).toBe("authenticated")
       expect(snap.user?.username).toBe("bob")
       expect(snap.session?.id).toBe("s-1")
+      expect(window.localStorage.getItem("hawk.auth_hint.v1")).toBe("1")
 
       // Verify no passwords or tokens leaked into localStorage
       if (typeof window !== "undefined" && window.localStorage) {
@@ -262,6 +263,7 @@ describe("auth store and actions", () => {
       expect(snap.status).toBe("unauthenticated")
       expect(snap.user).toBeNull()
       expect(snap.session).toBeNull()
+      expect(window.localStorage.getItem("hawk.auth_hint.v1")).toBeNull()
 
       // Sync metadata is cleared
       expect(getSyncMetadata()).toBeNull()
