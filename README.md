@@ -50,6 +50,7 @@ Run the stored diagnostic torrent in an isolated temporary directory for 60 seco
 
 ```sh
 npm run torrent:benchmark -- 60
+npm run torrent:benchmark -- 60 --tcp
 ```
 
 Each five-second sample reports connected, unchoked, and active peers; transport types;
