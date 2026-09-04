@@ -1,0 +1,6 @@
+{
+  "baseUrl": "https://your-app.streamlit.app",
+  "machineId": "copy x-streamlit-machine-id",
+  "csrfToken": "copy x-csrf-token",
+  "cookie": "copy the Cookie request header"
+}

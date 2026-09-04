@@ -1,4 +1,5 @@
 .streamlit/secrets.toml
+.streamlit-cloud.json
 node_modules/
 
 # Byte-compiled / optimized / DLL files

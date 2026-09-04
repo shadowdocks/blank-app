@@ -45,3 +45,19 @@ The launcher uses its pinned Node runtime in production. To run only the interna
 ```sh
 bun run dev
 ```
+
+## Streamlit Cloud operations
+
+Copy `.streamlit-cloud.example.json` to `.streamlit-cloud.json` and fill it with the authenticated values from a browser request. The local config is ignored by Git.
+
+```sh
+bun run cloud status
+bun run cloud context
+bun run cloud logs 30
+bun run cloud restart
+bun run cloud deploy
+bun run cloud secrets
+bun run cloud secrets-set .streamlit/secrets.toml
+```
+
+`deploy` restarts the app and waits until Streamlit reports it running. Mutating commands require a current CSRF token and session cookie.
