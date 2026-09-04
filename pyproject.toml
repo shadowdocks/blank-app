@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "httpx>=0.28.1",
-    "nookwire==2.4.1",
+    "nookwire==2.5.0",
     "streamlit>=1.61.1",
 ]
 

@@ -1,5 +1,5 @@
 import { mountPath } from "@/lib/router"
-import type { MediaType, Source, TimeBucket, Title, TorrentStatus } from "@/lib/types"
+import type { MediaType, Source, SubtitleTrack, TimeBucket, Title, TorrentStatus } from "@/lib/types"
 
 /**
  * Every path here is mount-relative on purpose. Streamlit serves this app from
@@ -77,6 +77,15 @@ function toStatus(raw: RawStatus): TorrentStatus {
     metadata: Boolean(raw.metadata),
     elapsedMs,
     lastEvent: raw.lastEvent || "connecting",
+    subtitles: Array.isArray(raw.subtitles)
+      ? raw.subtitles.filter(
+          (track): track is SubtitleTrack =>
+            Boolean(track) &&
+            typeof track === "object" &&
+            typeof track.index === "number" &&
+            typeof track.name === "string",
+        )
+      : [],
   }
 }
 

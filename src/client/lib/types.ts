@@ -42,6 +42,12 @@ export interface TorrentStatus {
   metadata: boolean
   elapsedMs: number
   lastEvent: string
+  subtitles: SubtitleTrack[]
+}
+
+export interface SubtitleTrack {
+  index: number
+  name: string
 }
 
 /** The title a stream came from, so /watch can route back after a reload. */

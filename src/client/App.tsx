@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { CircleAlert, House, RotateCcw, Search } from "lucide-react"
 
 import { AppLink } from "@/components/app-link"
@@ -9,7 +9,6 @@ import { SearchPhase } from "@/components/search-phase"
 import { SourcesPhase } from "@/components/sources-phase"
 import { TitlePhase, TitleSkeleton } from "@/components/title-phase"
 import { Button } from "@/components/ui/button"
-import { WatchPhase } from "@/components/watch-phase"
 import {
   ApiError,
   errorMessage,
@@ -24,6 +23,10 @@ import { navigate, titleMatches, titleRoute, toPath, useRoute } from "@/lib/rout
 import { loadSession, saveSession } from "@/lib/storage"
 import type { MediaType, Session, TimeBucket, Title, TorrentOrigin } from "@/lib/types"
 import { useTorrentFeed } from "@/lib/use-torrent"
+
+const WatchPhase = lazy(() =>
+  import("@/components/watch-phase").then((module) => ({ default: module.WatchPhase }))
+)
 
 type Pending = "recommend" | "shuffle" | "sources" | "start" | null
 
@@ -350,21 +353,29 @@ export default function App() {
           {homeButton}
         </EmptyState>
       ) : (
-        <WatchPhase
-          torrent={torrent}
-          status={feed.status}
-          error={error ?? feed.error}
-          onRetry={restart}
-          onChangeSource={
-            origin
-              ? () => navigate({ name: "sources", type: origin.type, id: origin.id })
-              : undefined
+        <Suspense
+          fallback={
+            <div className="flex aspect-video items-center justify-center rounded-lg border border-border bg-card text-sm text-muted-foreground">
+              Loading player…
+            </div>
           }
-          onBackToTitle={
-            origin ? () => navigate({ name: "title", type: origin.type, id: origin.id }) : undefined
-          }
-          onHome={() => navigate({ name: "pick" })}
-        />
+        >
+          <WatchPhase
+            torrent={torrent}
+            status={feed.status}
+            error={error ?? feed.error}
+            onRetry={restart}
+            onChangeSource={
+              origin
+                ? () => navigate({ name: "sources", type: origin.type, id: origin.id })
+                : undefined
+            }
+            onBackToTitle={
+              origin ? () => navigate({ name: "title", type: origin.type, id: origin.id }) : undefined
+            }
+            onHome={() => navigate({ name: "pick" })}
+          />
+        </Suspense>
       )
     }
   } else if (route.name === "title" || route.name === "sources") {

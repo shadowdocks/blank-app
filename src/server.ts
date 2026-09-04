@@ -58,27 +58,33 @@ async function handle(request: Request): Promise<Response> {
     if (url.pathname === "/api/torrents" && request.method === "POST") {
       try {
         const body = await request.json() as { magnet?: string };
-        return startTorrent(body.magnet ?? "");
+        return await startTorrent(body.magnet ?? "", request.signal);
       } catch {
         return Response.json({ error: "Invalid request body." }, { status: 400 });
       }
     }
     const status = /^\/api\/torrents\/([a-f0-9]{40}|[2-7a-z]{32})$/i.exec(url.pathname);
-    if (status && request.method === "GET") return torrentStatus(status[1]);
+    if (status && request.method === "GET") return await torrentStatus(status[1]);
     const diagnostic = /^\/api\/torrents\/([a-f0-9]{40}|[2-7a-z]{32})\/diagnostics$/i.exec(url.pathname);
-    if (diagnostic && request.method === "GET") return torrentDiagnostics(diagnostic[1]);
+    if (diagnostic && request.method === "GET") return await torrentDiagnostics(diagnostic[1]);
     const stream = /^\/api\/stream\/([a-f0-9]{40}|[2-7a-z]{32})\/(\d+)$/i.exec(url.pathname);
-    if (stream && (request.method === "GET" || request.method === "HEAD")) return streamTorrent(request, stream[1], stream[2]);
+    if (stream && (request.method === "GET" || request.method === "HEAD")) return await streamTorrent(request, stream[1], stream[2]);
     const builtAsset = url.pathname.match(/(\/assets\/[^/]+)$/)?.[1];
     const publicAsset = url.pathname.match(/\/([^/]+\.[a-z0-9]+)$/i)?.[1];
     return staticFile(builtAsset ?? (publicAsset ? `/${publicAsset}` : "/index.html"));
 }
 
 async function serve(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  request.once("aborted", abort);
+  response.once("close", () => {
+    if (!response.writableEnded) abort();
+  });
   try {
     const incoming = new Request(
       `http://127.0.0.1:${process.env.PORT ?? 9000}${request.url ?? "/"}`,
-      { method: request.method, headers: request.headers as HeadersInit, body: await bodyOf(request) },
+      { method: request.method, headers: request.headers as HeadersInit, body: await bodyOf(request), signal: controller.signal },
     );
     const outgoing = await handle(incoming);
     response.writeHead(outgoing.status, Object.fromEntries(outgoing.headers));

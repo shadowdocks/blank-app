@@ -11,12 +11,13 @@ Streamlit runs this repository as an ASGI application on port 8501. Its Python e
 - TMDB recommendations with IMDb-enriched curated fallback
 - Indexed torrent source search and direct magnet input
 - React, shadcn, Radix primitives, Tailwind CSS, and tokenized styling
-- WebTorrent 3.0.21 with TCP, uTP, parallel DHT discovery, expanded trackers, and 200-peer announces
-- HTTP Range video streaming
+- Lazy-loaded Vidstack player with responsive controls and selectable SRT/WebVTT subtitles
+- Checksum-pinned rqbit 9.0.1 with TCP, DHT, expanded trackers, and a 128-peer ceiling
+- Native seek-aware HTTP Range video streaming with selected subtitle files
 - History API routes with refresh-safe title, source, and playback state
 - Nookwire startup in noninteractive batch mode with authentication disabled
 
-There is no library, history, account system, Plex integration, subtitle manager, or persistent database.
+There is no library, history, account system, Plex integration, or persistent database.
 
 ## Configuration
 
@@ -46,20 +47,10 @@ The launcher uses its pinned Node runtime in production. To run only the interna
 bun run dev
 ```
 
-Run the stored diagnostic torrent in an isolated temporary directory for 60 seconds:
-
-```sh
-npm run torrent:benchmark -- 60
-npm run torrent:benchmark -- 60 --utp
-```
-
-Each five-second sample reports connected, unchoked, and active peers; transport types;
-outstanding piece requests; aggregate peer speed; CPU and event-loop utilization; event-loop
-delay; memory; disk throughput; and DHT size. The temporary download is deleted afterward.
-
-Hawk uses TCP peers by default. Testing on Streamlit Community Cloud showed about 47 MB/s
-average over TCP versus about 5 MB/s over uTP for the same torrent. Set `HAWK_UTP=1` or use
-the benchmark's `--utp` option only when comparing transports on another host.
+Hawk runs rqbit with its single-thread Tokio scheduler, TCP peers, and a 128-peer ceiling.
+On Streamlit Community Cloud, the same 2.88 GB torrent
+streamed at about 86 MB/s while rqbit used about 64% of one CPU and 27 MB RSS. The launcher
+downloads the official rqbit binary and verifies its release checksum before execution.
 
 ## Streamlit Cloud operations
 

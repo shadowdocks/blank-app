@@ -1,3 +1,3 @@
 httpx>=0.28.1
-nookwire==2.4.1
+nookwire==2.5.0
 streamlit>=1.61.1
