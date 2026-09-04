@@ -38,13 +38,13 @@ Requires Python 3.14, `uv`, Bun 1.4, and Node 22.
 ```sh
 uv sync
 bun install --frozen-lockfile
-uv run streamlit run streamlit_app.py
+bun run dev
 ```
 
-The launcher uses its pinned Node runtime in production. To run only the internal Hawk server while editing the frontend:
+`bun run dev` starts the complete local stack: rqbit on port 3030, the Hawk API on port 9000, and Vite on port 5173. It stops all three together when you press Ctrl-C. To run only Vite against an API already listening on port 9000:
 
 ```sh
-bun run dev
+bun run dev:frontend
 ```
 
 Hawk runs rqbit with its single-thread Tokio scheduler, TCP peers, and a 128-peer ceiling.

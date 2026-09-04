@@ -9,7 +9,8 @@
   "scripts": {
     "build": "vite build",
     "cloud": "bun run scripts/streamlit-cloud.ts",
-    "dev": "vite",
+    "dev": "uv run python scripts/dev.py",
+    "dev:frontend": "vite",
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit && tsc --ignoreConfig --noEmit --target ESNext --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck scripts/streamlit-cloud.ts"
   },

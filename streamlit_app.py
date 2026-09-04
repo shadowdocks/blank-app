@@ -247,6 +247,22 @@ def stop_runtime(runtime: HawkRuntime) -> None:
     stop_process(runtime.rqbit)
 
 
+def rqbit_command(binary: Path, download_dir: Path) -> list[Path | str]:
+    return [
+        binary,
+        "--http-api-listen-addr", f"127.0.0.1:{RQBIT_PORT}",
+        "--single-thread-runtime",
+        "--peer-limit", "128",
+        "--disable-dht-persistence",
+        "--disable-upnp-port-forward",
+        "--disable-lsd",
+        "--ipv4-only",
+        "--listen-port", "0",
+        "--trackers-filename", str(ROOT / "rqbit-trackers.txt"),
+        "server", "start", "--disable-persistence", str(download_dir),
+    ]
+
+
 def start_hawk(
     cancel: threading.Event | None = None,
     replace: HawkRuntime | None = None,
@@ -283,19 +299,7 @@ def start_hawk(
     process: subprocess.Popen[bytes] | None = None
     try:
         rqbit_process = subprocess.Popen(
-            [
-                rqbit,
-                "--http-api-listen-addr", f"127.0.0.1:{RQBIT_PORT}",
-                "--single-thread-runtime",
-                "--peer-limit", "128",
-                "--disable-dht-persistence",
-                "--disable-upnp-port-forward",
-                "--disable-lsd",
-                "--ipv4-only",
-                "--listen-port", "0",
-                "--trackers-filename", str(ROOT / "rqbit-trackers.txt"),
-                "server", "start", "--disable-persistence", str(download_dir),
-            ],
+            rqbit_command(rqbit, download_dir),
             cwd=ROOT,
             env=rqbit_env,
             start_new_session=True,
