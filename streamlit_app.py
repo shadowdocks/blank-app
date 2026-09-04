@@ -31,6 +31,7 @@ ROOT = Path(__file__).resolve().parent
 NODE_VERSION = "22.23.2"
 BUN_VERSION = "1.4.0"
 RQBIT_VERSION = "9.0.1"
+LAUNCHER_VERSION = "rqbit-v1"
 RQBIT_PORT = 3030
 HAWK_PORT = 9000
 HAWK_PID_FILE = Path("/tmp/hawk-backend.pid")
@@ -420,6 +421,7 @@ async def watch_deployment(application: Starlette) -> None:
 
 @asynccontextmanager
 async def lifespan(application: Starlette):
+    print(f"event=hawk_launcher version={LAUNCHER_VERSION}", flush=True)
     nookwire_task = asyncio.create_task(asyncio.to_thread(start_nookwire))
     hawk_task = asyncio.create_task(asyncio.to_thread(start_hawk))
     application.state.hawk_task = hawk_task
