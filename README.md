@@ -60,10 +60,11 @@ Copy `.streamlit-cloud.example.json` to `.streamlit-cloud.json` and fill it with
 bun run cloud status
 bun run cloud context
 bun run cloud logs 30
-bun run cloud restart
-bun run cloud deploy
+bun run cloud reboot 240
 bun run cloud secrets
 bun run cloud secrets-set .streamlit/secrets.toml
 ```
 
-`deploy` restarts the app and waits until Streamlit reports it running. Mutating commands require a current CSRF token and session cookie.
+A push to `main` is the normal deployment path. Hawk's running supervisor detects the new Git revision, rebuilds the frontend, and replaces the Node/rqbit runtime. No Cloud command is needed.
+
+`reboot` is an explicit Streamlit process reboot, not a deployment command. Use it only when `streamlit_app.py` or its Python dependencies changed, because the already-running Python interpreter cannot load new launcher code from a Git pull. It waits for Streamlit to report RUNNING and then verifies `/healthz`. Bun only runs this local helper; it is not the deployment mechanism. Mutating commands require a current CSRF token and session cookie.

@@ -130,7 +130,7 @@ async function logs(seconds = 30): Promise<void> {
 }
 
 function usage(): never {
-  console.error("Usage: bun run cloud <status|context|health|logs [seconds]|restart|deploy|wait [seconds]|secrets|secrets-set FILE>");
+  console.error("Usage: bun run cloud <status|context|health|logs [seconds]|reboot [seconds]|wait [seconds]|secrets|secrets-set FILE>");
   process.exit(2);
 }
 
@@ -149,10 +149,7 @@ async function main(): Promise<void> {
     case "logs":
       await logs(Number(argument ?? 30));
       return;
-    case "restart":
-      print(await request("/api/v2/app/restart", { method: "POST" }));
-      return;
-    case "deploy":
+    case "reboot":
       print(await request("/api/v2/app/restart", { method: "POST" }));
       await new Promise((resolveWait) => setTimeout(resolveWait, 3000));
       await waitUntilRunning(Number(argument ?? 180));
