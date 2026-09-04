@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parent
 NODE_VERSION = "22.23.2"
 BUN_VERSION = "1.4.0"
 HAWK_PORT = 9000
+HAWK_PID_FILE = Path("/tmp/hawk-backend.pid")
 HOP_BY_HOP = {
     "connection",
     "keep-alive",
@@ -104,6 +105,41 @@ def start_nookwire() -> None:
     print(output, flush=True)
 
 
+def stop_existing_hawk() -> None:
+    """Stop an orphaned backend left behind by a Streamlit hot reload."""
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            command = (entry / "cmdline").read_bytes().replace(b"\0", b" ")
+            cwd = (entry / "cwd").resolve()
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        if cwd != ROOT or b"src/server.ts" not in command:
+            continue
+        pid = int(entry.name)
+        print(f"event=hawk_stale_process pid={pid}", flush=True)
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+        else:
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
 def start_hawk() -> subprocess.Popen[bytes]:
     node = install_node()
     bun = install_bun()
@@ -121,6 +157,7 @@ def start_hawk() -> subprocess.Popen[bytes]:
     print("event=hawk_frontend_build", flush=True)
     subprocess.run([bun, "run", "build"], cwd=ROOT, env=env, check=True, timeout=120)
 
+    stop_existing_hawk()
     env.update({"PORT": str(HAWK_PORT), "DL_DIR": "/tmp/hawk-downloads"})
     process = subprocess.Popen(
         [node, ROOT / "node_modules" / "tsx" / "dist" / "cli.mjs", "src/server.ts"],
@@ -128,6 +165,7 @@ def start_hawk() -> subprocess.Popen[bytes]:
         env=env,
         start_new_session=True,
     )
+    HAWK_PID_FILE.write_text(f"{process.pid}\n")
 
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
@@ -186,6 +224,11 @@ async def lifespan(application: Starlette):
                     os.killpg(os.getpgid(hawk.pid), signal.SIGKILL)
                 except ProcessLookupError:
                     hawk.kill()
+            try:
+                if HAWK_PID_FILE.read_text().strip() == str(hawk.pid):
+                    HAWK_PID_FILE.unlink()
+            except FileNotFoundError:
+                pass
         if not nookwire_task.done():
             nookwire_task.cancel()
 
