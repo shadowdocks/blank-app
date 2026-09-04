@@ -101,7 +101,10 @@ export async function fetchTorrentio(
 ): Promise<PlaybackSource[]> {
   if (!target.imdbId) return [];
 
-  const baseUrl = (process.env.TORRENTIO_URL ?? "https://torrentio.strem.fun").replace(/\/+$/, "");
+  const runtimeProcess = (globalThis as typeof globalThis & {
+    process?: { env?: Record<string, string | undefined> };
+  }).process;
+  const baseUrl = (runtimeProcess?.env?.TORRENTIO_URL ?? "https://torrentio.strem.fun").replace(/\/+$/, "");
   let endpoint: string;
 
   if (target.mediaType === "tv") {

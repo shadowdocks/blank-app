@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "test": "bun test catalog",
+    "test": "bun test catalog sources.test.ts",
     "types": "wrangler types",
     "typecheck": "tsc --noEmit",
     "check": "npm run types && npm run typecheck && npm run test",
