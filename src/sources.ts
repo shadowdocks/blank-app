@@ -1,3 +1,5 @@
+import { logLine } from "./access-log";
+
 const TRACKERS = [
   "udp://tracker.opentrackr.org:1337/announce",
   "udp://open.stealth.si:80/announce",
@@ -36,9 +38,11 @@ export async function sources(url: URL): Promise<Response> {
       }))
       .sort((a, b) => b.seeds - a.seeds)
       .slice(0, 12);
+    logLine("api", `event=sources_found title=${JSON.stringify(title)} count=${results.length}`);
     if (!results.length) return Response.json({ error: "No streams found." }, { status: 404 });
     return Response.json({ results });
   } catch (error) {
+    logLine("api", `event=sources_error title=${JSON.stringify(title)} error=${JSON.stringify(String(error))}`, "error");
     return Response.json({ error: error instanceof Error ? error.message : "Source search failed." }, { status: 502 });
   }
 }

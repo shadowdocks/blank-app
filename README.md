@@ -41,7 +41,7 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-`bun run dev` starts the complete local stack: rqbit on port 3030, the Hawk API on port 9000, and Vite on port 5173. It stops all three together when you press Ctrl-C. To run only Vite against an API already listening on port 9000:
+`bun run dev` starts the complete local stack: rqbit on port 3030, the Hawk API on port 9000, and Vite on port 5173. Vite hot-reloads the frontend, and tsx restarts the API when its TypeScript changes. rqbit and the Python supervisor keep running; changes to their configuration require restarting `bun run dev`. Ctrl-C stops all three services. To run only Vite against an API already listening on port 9000:
 
 ```sh
 bun run dev:frontend

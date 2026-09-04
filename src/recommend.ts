@@ -1,5 +1,6 @@
 import { FALLBACK, MOODS, type MediaType, type TimeBucket } from "./config";
 import { enrichWithImdb } from "./catalog";
+import { logLine } from "./access-log";
 
 const TMDB = "https://api.themoviedb.org/3";
 const IMAGE = "https://image.tmdb.org/t/p";
@@ -20,12 +21,13 @@ export async function recommend(url: URL): Promise<Response> {
     return Response.json({ error: "Choose a valid mood, format, and duration." }, { status: 400 });
   }
 
-  const fallback = async () => Response.json({
-    results: await Promise.all(
+  const fallback = async () => {
+    const results = await Promise.all(
       shuffled(FALLBACK[moodId][type]).map((item) => enrichWithImdb(item, type)),
-    ),
-    source: "curated",
-  });
+    );
+    logLine("api", `event=recommendation_results mood=${moodId} type=${type} time=${time} source=curated count=${results.length}`);
+    return Response.json({ results, source: "curated" });
+  };
   const apiKey = process.env.TMDB_API_KEY;
   if (!apiKey) return fallback();
 
@@ -69,7 +71,9 @@ export async function recommend(url: URL): Promise<Response> {
         backdropUrl: item.backdrop_path ? `${IMAGE}/w1280${item.backdrop_path}` : null,
       };
     });
-    return results.length ? Response.json({ results, source: "tmdb" }) : fallback();
+    if (!results.length) return fallback();
+    logLine("api", `event=recommendation_results mood=${moodId} type=${type} time=${time} source=tmdb count=${results.length}`);
+    return Response.json({ results, source: "tmdb" });
   } catch {
     return fallback();
   }

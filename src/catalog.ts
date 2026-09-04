@@ -1,4 +1,5 @@
 import { FALLBACK, type MediaType } from "./config";
+import { logLine } from "./access-log";
 
 const IMDB_SUGGEST = "https://v2.sg.media-imdb.com/suggestion/x";
 const TMDB = "https://api.themoviedb.org/3";
@@ -158,13 +159,16 @@ export async function titleById(type: MediaType, id: string): Promise<CatalogTit
 export async function search(url: URL): Promise<Response> {
   const query = url.searchParams.get("q")?.trim() ?? "";
   if (query.length < 2) return Response.json({ results: [] });
-  return Response.json({ results: await searchCatalog(query), source: "imdb" });
+  const results = await searchCatalog(query);
+  logLine("api", `event=catalog_search query=${JSON.stringify(query)} count=${results.length}`);
+  return Response.json({ results, source: "imdb" });
 }
 
 export async function titleDetails(url: URL): Promise<Response> {
   const type = url.searchParams.get("type") === "tv" ? "tv" : "movie";
   const id = url.searchParams.get("id")?.trim() ?? "";
   const result = await titleById(type, id);
+  logLine("api", `event=title_lookup type=${type} id=${JSON.stringify(id)} found=${Boolean(result)}`);
   return result
     ? Response.json({ result })
     : Response.json({ error: "Title not found." }, { status: 404 });

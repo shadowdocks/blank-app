@@ -1,3 +1,5 @@
+import { logLine } from "./access-log";
+
 const rqbitUrl = process.env.RQBIT_URL ?? "http://127.0.0.1:3030";
 const videoPattern = /\.(mp4|m4v|mkv|webm|mov|avi|ts)$/i;
 const subtitlePattern = /\.(vtt|srt)$/i;
@@ -36,6 +38,7 @@ interface ActiveTorrent {
 }
 
 let active: ActiveTorrent | null = null;
+let lastStatusLogAt = 0;
 
 function hashFromMagnet(magnet: string): string | null {
   return /xt=urn:btih:([0-9a-f]{40}|[2-7a-z]{32})/i.exec(magnet)?.[1].toLowerCase() ?? null;
@@ -131,17 +134,21 @@ async function deleteActive(signal?: AbortSignal): Promise<void> {
   const response = await rqbit(`/torrents/${encodeURIComponent(hash)}/delete`, { method: "POST", signal });
   if (!response.ok && response.status !== 404) {
     const message = (await response.text()).trim();
-    console.error(`event=torrent_remove_error hash=${hash} status=${response.status}`);
+    logLine("rqbit", `event=torrent_remove_error hash=${hash} status=${response.status}`, "error");
     throw new Error(message || `rqbit could not delete torrent ${hash}`);
   }
   active = null;
+  logLine("rqbit", `event=torrent_removed hash=${hash}`);
 }
 
 export async function startTorrent(magnet: string, signal?: AbortSignal): Promise<Response> {
   const hash = hashFromMagnet(magnet);
   if (!hash) return Response.json({ error: "A valid magnet link is required." }, { status: 400 });
+  const startedAt = Date.now();
+  logLine("rqbit", `event=torrent_start hash=${hash}`);
   if (active?.hash === hash) {
     try {
+      logLine("rqbit", `event=torrent_reused hash=${hash}`);
       return Response.json(await currentStatus(hash));
     } catch {
       active = null;
@@ -163,17 +170,38 @@ export async function startTorrent(magnet: string, signal?: AbortSignal): Promis
     }
     const created = await response.json() as { details: RqbitDetails };
     active = { hash, startedAt: Date.now() };
-    console.log(`event=torrent_metadata hash=${hash} files=${created.details.files?.length ?? 0}`);
+    lastStatusLogAt = 0;
+    const files = created.details.files ?? [];
+    logLine("rqbit",
+      `event=torrent_metadata hash=${hash} name=${JSON.stringify(created.details.name ?? "unknown")} `
+      + `files=${files.length} video=${largestVideo(files) ?? "none"} `
+      + `subtitles=${files.filter((file) => file.included && subtitlePattern.test(file.name)).length} `
+      + `duration_ms=${Date.now() - startedAt}`,
+    );
     return Response.json(await currentStatus(hash), { status: 202 });
   } catch (error) {
-    console.error(`event=torrent_error hash=${hash}`, String(error));
+    if (signal?.aborted) {
+      logLine("rqbit", `event=torrent_cancelled hash=${hash} duration_ms=${Date.now() - startedAt}`, "warn");
+      return new Response(null, { status: 499 });
+    }
+    logLine("rqbit", `event=torrent_error hash=${hash} error=${JSON.stringify(String(error))}`, "error");
     return Response.json({ error: "The torrent engine could not start this magnet." }, { status: 502 });
   }
 }
 
 export async function torrentStatus(hash: string): Promise<Response> {
   try {
-    return Response.json(await currentStatus(hash));
+    const torrent = await currentStatus(hash);
+    const now = Date.now();
+    if (now - lastStatusLogAt >= 10_000 || torrent.done) {
+      lastStatusLogAt = now;
+      logLine("rqbit",
+        `event=torrent_status hash=${torrent.infoHash} state=${torrent.lastEvent} `
+        + `progress=${(torrent.progress * 100).toFixed(1)} downloaded=${torrent.downloaded} `
+        + `total=${torrent.length} peers=${torrent.numPeers} speed_bps=${Math.round(torrent.downloadSpeed)}`,
+      );
+    }
+    return Response.json(torrent);
   } catch (error) {
     const statusCode = typeof error === "object" && error && "status" in error ? Number(error.status) : 502;
     return statusCode === 404
@@ -251,7 +279,7 @@ export async function streamTorrent(request: Request, hash: string, index: strin
     } catch (error) {
       if (request.signal.aborted) return new Response(null, { status: 499 });
       if (attempt === 4) {
-        console.error(`event=stream_error hash=${hash} file=${fileIndex}`, String(error));
+        logLine("rqbit", `event=stream_error hash=${hash} file=${fileIndex} error=${JSON.stringify(String(error))}`, "error");
         return Response.json({ error: "The stream is temporarily unavailable." }, { status: 503 });
       }
       await new Promise((resolve) => setTimeout(resolve, attempt * 250));

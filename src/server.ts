@@ -3,12 +3,14 @@ import { readFile } from "node:fs/promises";
 import { extname } from "node:path";
 import { Readable } from "node:stream";
 
+import { accessEnd, logLine } from "./access-log";
 import { recommend } from "./recommend";
 import { search, titleDetails } from "./catalog";
 import { sources } from "./sources";
 import { startTorrent, streamTorrent, torrentDiagnostics, torrentStatus } from "./torrent";
 
 const root = new URL("../dist/", import.meta.url);
+let requestSequence = 0;
 const contentTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -75,11 +77,31 @@ async function handle(request: Request): Promise<Response> {
 }
 
 async function serve(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const startedAt = performance.now();
+  const requestId = `req-${++requestSequence}`;
+  const requestUrl = new URL(request.url ?? "/", `http://127.0.0.1:${process.env.PORT ?? 9000}`);
+  const statusPoll = /^\/api\/torrents\/([a-f0-9]{40}|[2-7a-z]{32})$/i.test(requestUrl.pathname);
+  const staticAsset = /\.[a-z0-9]+$/i.test(requestUrl.pathname);
+  const logged = requestUrl.pathname !== "/health" && !statusPoll && !staticAsset;
+  const displayUrl = `${requestUrl.pathname}${requestUrl.search}`;
+  let finished = false;
+  const finish = (outcome: "complete" | "aborted") => {
+    if (!logged || finished) return;
+    finished = true;
+    accessEnd("api", request.method ?? "GET", displayUrl, response.statusCode, performance.now() - startedAt, requestId, outcome);
+  };
+  if (logged) {
+    response.setHeader("x-request-id", requestId);
+    response.once("finish", () => finish("complete"));
+  }
   const controller = new AbortController();
   const abort = () => controller.abort();
   request.once("aborted", abort);
   response.once("close", () => {
-    if (!response.writableEnded) abort();
+    if (!response.writableEnded) {
+      abort();
+      finish("aborted");
+    }
   });
   try {
     const incoming = new Request(
@@ -97,12 +119,12 @@ async function serve(request: IncomingMessage, response: ServerResponse): Promis
       if (!response.writableEnded) stream.destroy();
     });
     stream.on("error", (error) => {
-      console.error("event=stream_error", error);
+      logLine("api", `event=stream_error request_id=${requestId} error=${JSON.stringify(String(error))}`, "error");
       response.destroy();
     });
     stream.pipe(response);
   } catch (error) {
-    console.error("event=http_error", error);
+    logLine("api", `event=http_error request_id=${requestId} error=${JSON.stringify(String(error))}`, "error");
     if (!response.headersSent) response.writeHead(500, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: "Internal server error." }));
   }
@@ -114,5 +136,5 @@ const server = createServer((request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`event=hawk_listening url=http://127.0.0.1:${port}`);
+  logLine("api", `event=hawk_listening url=http://127.0.0.1:${port}`);
 });

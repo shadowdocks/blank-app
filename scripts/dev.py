@@ -26,6 +26,29 @@ from streamlit_app import (  # noqa: E402
 )
 
 
+def log_line(service: str, label: str, message: str) -> None:
+    colors = {"api": 94, "rqbit": 95, "web": 36}
+    enabled = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+    def paint(code: int, value: str) -> str:
+        return f"\033[{code}m{value}\033[0m" if enabled else value
+
+    def bold_paint(code: int, value: str) -> str:
+        return f"\033[1;{code}m{value}\033[0m" if enabled else value
+
+    def timestamp_paint(value: str) -> str:
+        return f"\033[2;37m{value}\033[0m" if enabled else value
+
+    timestamp = time.strftime("%H:%M:%S")
+    service_label = f"[{service}]".ljust(9)
+    status_label = label.upper().rjust(4)
+    print(
+        f"{timestamp_paint(timestamp)} {bold_paint(colors.get(service, 37), service_label)} "
+        f"{paint(36, status_label)} {message}",
+        flush=True,
+    )
+
+
 def wait_for_json(url: str, process: subprocess.Popen[bytes], expected: dict[str, object], seconds: int) -> None:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -74,14 +97,23 @@ def main() -> int:
             {"version": RQBIT_VERSION},
             15,
         )
+        log_line("rqbit", "ready", f"version={RQBIT_VERSION} url=http://127.0.0.1:{RQBIT_PORT}")
 
         backend_env = env | {
             "PORT": str(HAWK_PORT),
             "HAWK_REVISION": "dev",
+            "LANG": "en_GB.UTF-8",
+            "LC_TIME": "en_GB.UTF-8",
             "RQBIT_URL": f"http://127.0.0.1:{RQBIT_PORT}",
         }
         backend = subprocess.Popen(
-            [node, ROOT / "node_modules" / "tsx" / "dist" / "cli.mjs", "src/server.ts"],
+            [
+                node,
+                ROOT / "node_modules" / "tsx" / "dist" / "cli.mjs",
+                "watch",
+                "--clear-screen=false",
+                "src/server.ts",
+            ],
             cwd=ROOT,
             env=backend_env,
             start_new_session=True,
@@ -92,12 +124,7 @@ def main() -> int:
             {"status": "ok", "revision": "dev"},
             30,
         )
-
-        print(
-            f"event=hawk_dev_ready node={NODE_VERSION} rqbit={RQBIT_VERSION} "
-            f"api=http://127.0.0.1:{HAWK_PORT}",
-            flush=True,
-        )
+        log_line("api", "ready", f"node={NODE_VERSION} url=http://127.0.0.1:{HAWK_PORT}")
         vite = subprocess.Popen(
             [bun, "run", "vite", *sys.argv[1:]],
             cwd=ROOT,
