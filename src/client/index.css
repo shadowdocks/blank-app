@@ -39,6 +39,7 @@
     --color-card: var(--card);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
+    --color-rating: var(--rating);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -47,7 +48,8 @@
     --radius-3xl: calc(var(--radius) * 2.2);
     --radius-4xl: calc(var(--radius) * 2.6);
 
-    --animate-rise: rise 0.32s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+    --animate-rise: rise 0.28s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+    --animate-fade: fade 0.2s ease-out both;
 
     @keyframes rise {
         from {
@@ -59,46 +61,56 @@
             transform: none;
         }
     }
+
+    @keyframes fade {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
 }
 
 /*
-  Hawk runs as a single cinematic dark surface: a lean-back viewing app has no
-  reason to flip themes, so the same warm neutral ramp fills :root and .dark.
+  Hawk is one dark cinema. A neutral near-black ramp fills :root and .dark so
+  artwork carries the colour. The only chromatic token is the desaturated
+  rating star.
 */
 :root,
 .dark {
-    --background: oklch(0.135 0.006 68);
-    --foreground: oklch(0.96 0.012 85);
-    --card: oklch(0.18 0.007 68);
-    --card-foreground: oklch(0.955 0.012 85);
-    --popover: oklch(0.196 0.007 68);
-    --popover-foreground: oklch(0.955 0.012 85);
-    --primary: oklch(0.81 0.15 75);
-    --primary-foreground: oklch(0.19 0.035 62);
-    --secondary: oklch(0.235 0.009 68);
-    --secondary-foreground: oklch(0.955 0.012 85);
-    --muted: oklch(0.215 0.008 68);
-    --muted-foreground: oklch(0.72 0.013 78);
-    --accent: oklch(0.255 0.01 68);
-    --accent-foreground: oklch(0.955 0.012 85);
+    --background: oklch(0.13 0.004 70);
+    --foreground: oklch(0.965 0.006 85);
+    --card: oklch(0.17 0.004 70);
+    --card-foreground: oklch(0.96 0.006 85);
+    --popover: oklch(0.19 0.004 70);
+    --popover-foreground: oklch(0.96 0.006 85);
+    --primary: oklch(0.94 0.006 85);
+    --primary-foreground: oklch(0.16 0.004 70);
+    --secondary: oklch(0.235 0.005 70);
+    --secondary-foreground: oklch(0.96 0.006 85);
+    --muted: oklch(0.21 0.005 70);
+    --muted-foreground: oklch(0.72 0.008 78);
+    --accent: oklch(0.255 0.006 70);
+    --accent-foreground: oklch(0.96 0.006 85);
     --destructive: oklch(0.688 0.163 27);
-    --border: oklch(0.29 0.01 68);
-    --input: oklch(0.336 0.009 68);
-    --ring: oklch(0.79 0.142 72);
-    --chart-1: oklch(0.79 0.142 72);
-    --chart-2: oklch(0.712 0.013 78);
-    --chart-3: oklch(0.556 0.011 78);
-    --chart-4: oklch(0.42 0.01 68);
-    --chart-5: oklch(0.288 0.009 68);
-    --radius: 0.5rem;
-    --sidebar: oklch(0.196 0.007 68);
-    --sidebar-foreground: oklch(0.955 0.012 85);
-    --sidebar-primary: oklch(0.79 0.142 72);
-    --sidebar-primary-foreground: oklch(0.22 0.048 62);
-    --sidebar-accent: oklch(0.256 0.009 68);
-    --sidebar-accent-foreground: oklch(0.955 0.012 85);
-    --sidebar-border: oklch(0.288 0.009 68);
-    --sidebar-ring: oklch(0.79 0.142 72);
+    --border: oklch(0.285 0.006 70);
+    --input: oklch(0.336 0.006 70);
+    --ring: oklch(0.78 0.008 80);
+    --rating: oklch(0.8 0.055 82);
+    --chart-1: oklch(0.86 0.006 85);
+    --chart-2: oklch(0.712 0.008 78);
+    --chart-3: oklch(0.556 0.007 78);
+    --chart-4: oklch(0.42 0.006 70);
+    --chart-5: oklch(0.288 0.005 70);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.19 0.004 70);
+    --sidebar-foreground: oklch(0.96 0.006 85);
+    --sidebar-primary: oklch(0.94 0.006 85);
+    --sidebar-primary-foreground: oklch(0.16 0.004 70);
+    --sidebar-accent: oklch(0.256 0.006 70);
+    --sidebar-accent-foreground: oklch(0.96 0.006 85);
+    --sidebar-border: oklch(0.288 0.005 70);
+    --sidebar-ring: oklch(0.78 0.008 80);
+
+    --scene-fade: linear-gradient(to top, var(--background) 0%, color-mix(in oklch, var(--background) 62%, transparent) 30%, color-mix(in oklch, var(--background) 10%, transparent) 58%, transparent 100%);
+    --scene-side: linear-gradient(to right, color-mix(in oklch, var(--background) 62%, transparent) 0%, color-mix(in oklch, var(--background) 18%, transparent) 40%, transparent 68%);
 
     color-scheme: dark;
 }
@@ -113,8 +125,9 @@
     -webkit-font-smoothing: antialiased;
     min-width: 320px;
     min-height: 100svh;
+    overflow-x: hidden;
     }
-  button:not(:disabled), [role="button"]:not(:disabled) {
+  button:not(:disabled), [role="button"]:not(:disabled), [role="menuitemradio"], [role="menuitem"], [role="switch"]:not(:disabled) {
     cursor: pointer;
     }
   html {
@@ -126,7 +139,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   ::selection {
-    background: color-mix(in oklch, var(--primary) 36%, transparent);
+    background: rgb(255 255 255 / 0.22);
   }
 }
 
@@ -140,49 +153,151 @@
     padding-inline: max(1rem, calc((100vw - 90rem) / 2));
   }
 
+  .display-title {
+    font-size: clamp(2.25rem, 6vw, 4.5rem);
+    line-height: 0.96;
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    text-wrap: balance;
+  }
+
   .page-title {
     margin-top: 0.35rem;
-    font-size: clamp(2rem, 5vw, 3.25rem);
+    font-size: clamp(2rem, 5vw, 3rem);
     line-height: 1;
-    font-weight: 650;
-    letter-spacing: -0.055em;
+    font-weight: 600;
+    letter-spacing: -0.05em;
   }
 
   .section-title {
-    font-size: clamp(1.25rem, 2.5vw, 1.65rem);
+    font-size: clamp(1.15rem, 2.2vw, 1.5rem);
     line-height: 1.2;
-    font-weight: 620;
-    letter-spacing: -0.035em;
+    font-weight: 600;
+    letter-spacing: -0.03em;
   }
 
   .eyebrow {
-    color: var(--primary);
-    font-size: 0.72rem;
-    font-weight: 650;
+    color: var(--muted-foreground);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  /* One small uppercase line of genres, dot separated. */
+  .genre-line {
+    color: color-mix(in oklch, var(--foreground) 74%, transparent);
+    font-size: 0.7rem;
+    font-weight: 600;
     letter-spacing: 0.14em;
     text-transform: uppercase;
   }
 
-  .brand-mark {
-    display: grid;
-    width: 1.75rem;
-    height: 1.75rem;
-    place-items: center;
-    border-radius: 0.4rem;
-    background: var(--primary);
-    color: var(--primary-foreground);
-    font-weight: 800;
-    letter-spacing: -0.08em;
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 0.35rem;
+    font-size: 0.875rem;
+    color: color-mix(in oklch, var(--foreground) 84%, transparent);
   }
 
-  .hero-shade {
-    background: rgb(13 12 11 / 0.38);
-    box-shadow: inset 0 -20rem 12rem -8rem rgb(18 16 14 / 0.98), inset 20rem 0 15rem -12rem rgb(18 16 14 / 0.8);
+  .meta-row > * {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .meta-row > * + *::before {
+    content: "·";
+    margin-inline: 0.65em;
+    color: var(--muted-foreground);
+  }
+
+  /* One scene treatment for home, details and watch: artwork, then darkness. */
+  .scene {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: var(--background);
+  }
+
+  .scene-art {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 22%;
+    z-index: -2;
+  }
+
+  .scene-art[data-soft="true"] {
+    transform: scale(1.06);
+    filter: blur(14px) saturate(1.05);
+    opacity: 0.55;
+  }
+
+  /* Ambient copy of the artwork behind the inset stage; only lit at >= 64rem. */
+  .scene-art[data-ambient="true"] {
+    display: none;
+    transform: scale(1.12);
+    filter: blur(48px) saturate(1.1);
+    opacity: 0.34;
+  }
+
+  .scene-shade {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: var(--scene-fade), var(--scene-side);
+  }
+
+  .scene-shade[data-tone="dim"] {
+    background: var(--scene-fade), rgb(10 9 8 / 0.5);
+  }
+
+  .scene-shade[data-tone="veil"] {
+    background: linear-gradient(to top, var(--background) 0%, color-mix(in oklch, var(--background) 74%, transparent) 42%, color-mix(in oklch, var(--background) 22%, transparent) 78%, transparent 100%);
+  }
+
+  /* Sharp inset stage inside a stage scene. Full-bleed below 64rem. */
+  .stage-frame {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    width: 100%;
+    background: var(--card);
+  }
+
+  .stage-frame .scene-art {
+    object-position: 68% 20%;
+  }
+
+  .chrome-header {
+    background: transparent;
+    transition: background-color 200ms ease;
+  }
+
+  .chrome-header[data-scrolled="true"] {
+    background: color-mix(in oklch, var(--background) 94%, transparent);
+  }
+
+  .mobile-nav {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--background);
+    border-top: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  }
+
+  .surface {
+    background: var(--card);
+    border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+    border-radius: var(--radius-xl);
   }
 
   .poster-frame {
-    border: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
-    box-shadow: 0 12px 30px rgb(0 0 0 / 0.2);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    box-shadow: 0 14px 34px rgb(0 0 0 / 0.35);
   }
 
   .media-grid {
@@ -198,16 +313,22 @@
   .media-rail {
     display: grid;
     grid-auto-flow: column;
-    grid-auto-columns: 42vw;
+    grid-auto-columns: 40vw;
     gap: 0.85rem;
     overflow-x: auto;
     overscroll-behavior-inline: contain;
     scroll-snap-type: inline proximity;
     scrollbar-width: none;
+    padding-block: 0.25rem;
   }
 
   .media-rail::-webkit-scrollbar {
     display: none;
+  }
+
+  .media-rail[data-inset="true"] {
+    grid-auto-columns: 8.5rem;
+    padding-inline: 0;
   }
 
   .rail-card {
@@ -239,11 +360,389 @@
     background: var(--primary);
     color: var(--primary-foreground);
     padding: 0.75rem 1rem;
-    font-weight: 650;
+    font-weight: 600;
   }
 
   .skip-link:focus {
     transform: translateY(0);
+  }
+
+  /* Settings rows: label and copy left, control right; stacks on phones. */
+  .setting-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding-block: 1rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+  }
+
+  .setting-row:last-child {
+    border-bottom: 0;
+  }
+
+  /* Watch route: the player is the page. */
+  .watch-route {
+    position: relative;
+    height: 100svh;
+    overflow: hidden;
+    background: #000;
+    color: #fff;
+  }
+
+  /* Integrated player chrome. Vidstack toggles data-controls / data-visible. */
+  .hawk-player {
+    position: relative;
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: #000;
+    color: #fff;
+    font-family: var(--font-sans);
+    --media-brand: #fff;
+    --media-font-family: var(--font-sans);
+  }
+
+  .hawk-player[data-viewport="true"] {
+    aspect-ratio: auto;
+    height: 100%;
+  }
+
+  .hawk-player video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .hawk-player[data-fullscreen] {
+    aspect-ratio: auto;
+    width: 100vw;
+    height: 100vh;
+  }
+
+  .hawk-player[data-view-type="video"][data-started]:not([data-controls]) {
+    cursor: none;
+  }
+
+  .hawk-controls {
+    position: absolute;
+    inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+  }
+
+  .hawk-controls[data-visible] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .hawk-controls-top {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: calc(0.75rem + env(safe-area-inset-top, 0px)) calc(0.75rem + env(safe-area-inset-right, 0px)) 2.5rem calc(0.75rem + env(safe-area-inset-left, 0px));
+    background: linear-gradient(to bottom, rgb(0 0 0 / 0.72), transparent);
+  }
+
+  .hawk-controls-bottom {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 2.75rem calc(0.75rem + env(safe-area-inset-right, 0px)) calc(0.6rem + env(safe-area-inset-bottom, 0px)) calc(0.75rem + env(safe-area-inset-left, 0px));
+    background: linear-gradient(to top, rgb(0 0 0 / 0.78), rgb(0 0 0 / 0.3) 65%, transparent);
+  }
+
+  .hawk-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    min-width: 2.75rem;
+    height: 2.75rem;
+    padding-inline: 0.6rem;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    outline: none;
+    transition: background-color 150ms ease, transform 150ms ease;
+  }
+
+  .hawk-button:hover,
+  .hawk-button[data-state="open"] {
+    background: rgb(255 255 255 / 0.14);
+  }
+
+  .hawk-button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .hawk-button:focus-visible {
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 0.55);
+  }
+
+  .hawk-button svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    flex-shrink: 0;
+  }
+
+  .hawk-status {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    color: rgb(255 255 255 / 0.72);
+    white-space: nowrap;
+  }
+
+  .hawk-status-dot {
+    width: 0.4rem;
+    height: 0.4rem;
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.5);
+  }
+
+  .hawk-status[data-state="ready"] .hawk-status-dot,
+  .hawk-status[data-state="complete"] .hawk-status-dot,
+  .hawk-status[data-state="offline"] .hawk-status-dot {
+    background: #fff;
+  }
+
+  .hawk-status[data-state="error"] .hawk-status-dot {
+    background: var(--destructive);
+  }
+
+  .hawk-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 12;
+    display: grid;
+    place-items: center;
+    padding: 1.5rem;
+    background: rgb(0 0 0 / 0.62);
+    text-align: center;
+  }
+
+  .hawk-center-play {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 11;
+    display: grid;
+    width: 4.5rem;
+    height: 4.5rem;
+    place-items: center;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.92);
+    color: #111;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 10px 30px rgb(0 0 0 / 0.4);
+    transition: transform 150ms ease, opacity 200ms ease, background-color 150ms ease;
+  }
+
+  .hawk-center-play:hover {
+    background: #fff;
+  }
+
+  .hawk-center-play:focus-visible {
+    box-shadow: 0 0 0 4px rgb(255 255 255 / 0.5), 0 10px 30px rgb(0 0 0 / 0.4);
+    outline: none;
+  }
+
+  .hawk-center-play svg {
+    width: 2rem;
+    height: 2rem;
+    margin-left: 0.2rem;
+  }
+
+  .hawk-time-slider {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 2.5rem;
+    cursor: pointer;
+    outline: none;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .hawk-time-track {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.25);
+    overflow: hidden;
+    transition: height 150ms ease;
+  }
+
+  .hawk-time-slider:hover .hawk-time-track,
+  .hawk-time-slider[data-active] .hawk-time-track,
+  .hawk-time-slider:focus-visible .hawk-time-track {
+    height: 6px;
+  }
+
+  .hawk-time-progress {
+    position: absolute;
+    inset: 0;
+    width: var(--slider-progress, 0%);
+    background: rgb(255 255 255 / 0.28);
+  }
+
+  .hawk-time-fill {
+    position: absolute;
+    inset: 0;
+    width: var(--slider-fill, 0%);
+    background: #fff;
+  }
+
+  .hawk-time-thumb {
+    position: absolute;
+    top: 50%;
+    left: var(--slider-fill, 0%);
+    width: 14px;
+    height: 14px;
+    border-radius: 999px;
+    background: #fff;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+    transition: opacity 150ms ease, transform 150ms ease;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.4);
+  }
+
+  .hawk-time-slider:hover .hawk-time-thumb,
+  .hawk-time-slider[data-active] .hawk-time-thumb,
+  .hawk-time-slider:focus-visible .hawk-time-thumb {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .hawk-time-slider:focus-visible .hawk-time-track {
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 0.45);
+  }
+
+  .hawk-time-preview {
+    position: absolute;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.4rem;
+    background: rgb(0 0 0 / 0.85);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms ease;
+    --media-slider-preview-offset: 6px;
+  }
+
+  .hawk-time-preview[data-visible] {
+    opacity: 1;
+  }
+
+  .hawk-volume {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 0;
+    height: 2.75rem;
+    overflow: hidden;
+    opacity: 0;
+    cursor: pointer;
+    outline: none;
+    touch-action: none;
+    transition: width 200ms ease, opacity 200ms ease;
+  }
+
+  .hawk-volume-group:hover .hawk-volume,
+  .hawk-volume-group:focus-within .hawk-volume,
+  .hawk-volume[data-active] {
+    width: 5.5rem;
+    opacity: 1;
+  }
+
+  .hawk-volume-track {
+    position: relative;
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.25);
+    overflow: hidden;
+  }
+
+  .hawk-volume-fill {
+    position: absolute;
+    inset: 0;
+    width: var(--slider-fill, 0%);
+    background: #fff;
+  }
+
+  .hawk-volume:focus-visible .hawk-volume-track {
+    box-shadow: 0 0 0 3px rgb(255 255 255 / 0.45);
+  }
+
+  .hawk-player .vds-captions {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0.75rem;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    padding-inline: 1.5rem;
+    pointer-events: none;
+    text-align: center;
+    font-size: clamp(0.95rem, 2.2vw, 1.5rem);
+    line-height: 1.35;
+    transition: bottom 200ms ease;
+  }
+
+  .hawk-player[data-controls] .vds-captions {
+    bottom: 5.25rem;
+  }
+
+  .hawk-player .vds-captions[aria-hidden="true"] {
+    display: none;
+  }
+
+  .hawk-player .vds-captions [data-part="cue-display"] {
+    display: block;
+  }
+
+  .hawk-player .vds-captions [data-part="cue"] {
+    display: inline-block;
+    padding: 0.15em 0.45em;
+    border-radius: 0.3em;
+    background: rgb(0 0 0 / 0.72);
+    color: #fff;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+    white-space: pre-wrap;
+  }
+
+  .hawk-poster {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 250ms ease;
+  }
+
+  .hawk-poster[data-visible] {
+    opacity: 1;
   }
 }
 
@@ -252,23 +751,43 @@
   to { opacity: 1; }
 }
 
+@media (min-width: 40rem) {
+  .setting-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+  }
+}
+
 @media (min-width: 48rem) {
   .page-container { width: min(100% - 3rem, 90rem); }
   .page-gutter { padding-inline: max(1.5rem, calc((100vw - 90rem) / 2)); }
   .media-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2rem 1rem; }
-  .media-rail { grid-auto-columns: 22vw; gap: 1rem; }
+  .media-rail { grid-auto-columns: 21vw; gap: 1rem; }
+  .media-rail[data-inset="true"] { grid-auto-columns: 9.5rem; }
+  .hawk-button { height: 2.5rem; min-width: 2.5rem; }
+  .hawk-controls-top { padding-inline: calc(1rem + env(safe-area-inset-left, 0px)) calc(1rem + env(safe-area-inset-right, 0px)); }
+  .hawk-controls-bottom { padding-inline: calc(1rem + env(safe-area-inset-left, 0px)) calc(1rem + env(safe-area-inset-right, 0px)); }
 }
 
 @media (min-width: 64rem) {
   .page-container { width: min(100% - 4rem, 90rem); }
   .page-gutter { padding-inline: max(2rem, calc((100vw - 90rem) / 2)); }
   .media-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2.25rem 1.15rem; }
-  .media-rail { grid-auto-columns: minmax(10rem, 14vw); gap: 1.15rem; }
+  .media-rail { grid-auto-columns: minmax(10rem, 13.5vw); gap: 1.15rem; }
+  .scene-art[data-ambient="true"] { display: block; }
+  .stage-frame {
+    width: min(100% - 4rem, 90rem);
+    margin-inline: auto;
+    border-radius: var(--radius-2xl);
+    border: 1px solid rgb(255 255 255 / 0.06);
+  }
 }
 
 @media (min-width: 90rem) {
   .media-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-  .media-rail { grid-auto-columns: 12.25rem; }
+  .media-rail { grid-auto-columns: 12rem; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -279,5 +798,10 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .scene-art[data-soft="true"],
+  .scene-art[data-ambient="true"] {
+    transform: none;
   }
 }

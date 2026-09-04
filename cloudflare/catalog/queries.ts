@@ -21,7 +21,7 @@ export const TITLE_DETAIL_QUERY = `query TitleDetail($id: ID!, $castFirst: Int!,
     spokenLanguages { spokenLanguages { id text } }
     primaryImage { url width height }
     images(first: 12) {
-      edges { node { url width height } }
+      edges { node { url width height type } }
     }
     latestTrailer { id name { value } runtime { value } }
     credits(first: $castFirst) {
@@ -58,6 +58,15 @@ export const TITLE_DETAIL_QUERY = `query TitleDetail($id: ID!, $castFirst: Int!,
           }
         }
       }
+    }
+  }
+}`;
+
+export const HERO_ART_QUERY = `query HeroArt($id: ID!) {
+  title(id: $id) {
+    id
+    images(first: 12) {
+      edges { node { url width height type } }
     }
   }
 }`;

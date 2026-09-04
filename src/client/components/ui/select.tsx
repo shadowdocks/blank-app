@@ -12,7 +12,7 @@ export function SelectTrigger({ className, children, ...props }: React.Component
 }
 
 export function SelectContent({ children, ...props }: React.ComponentProps<typeof SelectPrimitive.Content>) {
-  return <SelectPrimitive.Portal><SelectPrimitive.Content position="popper" sideOffset={6} className="z-60 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-2xl" {...props}><SelectPrimitive.Viewport className="max-h-[min(24rem,var(--radix-select-content-available-height))] overflow-y-auto">{children}</SelectPrimitive.Viewport></SelectPrimitive.Content></SelectPrimitive.Portal>
+  return <SelectPrimitive.Portal><SelectPrimitive.Content position="popper" sideOffset={6} className="z-90 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-2xl" {...props}><SelectPrimitive.Viewport className="max-h-[min(24rem,var(--radix-select-content-available-height))] overflow-y-auto">{children}</SelectPrimitive.Viewport></SelectPrimitive.Content></SelectPrimitive.Portal>
 }
 
 export function SelectItem({ children, className, ...props }: React.ComponentProps<typeof SelectPrimitive.Item>) {

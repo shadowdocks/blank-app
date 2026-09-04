@@ -57,15 +57,33 @@ export interface LibraryRoute {
   name: "library"
 }
 
+export interface SettingsRoute {
+  name: "settings"
+}
+
+export interface LoginRoute {
+  name: "login"
+}
+
+export interface ProfileRoute {
+  name: "profile"
+  username: string
+}
+
+export type UserProfileRoute = ProfileRoute
+
 export type Route =
   | HomeRoute
   | SearchRoute
   | TitleRoute
   | WatchRoute
   | LibraryRoute
+  | SettingsRoute
+  | LoginRoute
+  | ProfileRoute
 
 const MOUNT_MARKER = "/~/+/"
-const ROUTE_TAIL = /(?:\/|^)(?:search|library|title\/[^/]+|watch\/[^/]+(?:\/[^/]+\/[^/]+)?|app\/(?:movie|tv)\/[^/]+(?:\/sources)?)\/?$/
+const ROUTE_TAIL = /(?:\/|^)(?:search|library|settings|login|(?:u|profile)\/[^/]+|title\/[^/]+|watch\/[^/]+(?:\/[^/]+\/[^/]+)?|app\/(?:movie|tv)\/[^/]+(?:\/sources)?)\/?$/
 
 let customMount: string | null = null
 let cachedMount: string | null = null
@@ -147,6 +165,18 @@ export function parseRoute(pathname?: string, base?: string): Route {
     return { name: "library" }
   }
 
+  if (head === "settings" && !second) {
+    return { name: "settings" }
+  }
+
+  if (head === "login" && !second) {
+    return { name: "login" }
+  }
+
+  if ((head === "u" || head === "profile") && second && !third) {
+    return { name: "profile", username: second }
+  }
+
   if (head === "title" && second && !third) {
     return { name: "title", imdbId: second, id: second, type: "movie" }
   }
@@ -189,6 +219,12 @@ export function toPath(route: Route, base?: string): string {
       return `${mount}search`
     case "library":
       return `${mount}library`
+    case "settings":
+      return `${mount}settings`
+    case "login":
+      return `${mount}login`
+    case "profile":
+      return `${mount}u/${encodeURIComponent(route.username)}`
     case "title": {
       const id = route.imdbId || route.id || ""
       return `${mount}title/${encodeURIComponent(id)}`

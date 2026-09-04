@@ -1,7 +1,9 @@
 import type { MediaSummary, MediaType } from "../../shared/media"
 import type { PlaybackRecord, VideoQuality } from "../../shared/playback"
+import type { HawkSyncedState, SyncMetadata } from "./account-types"
 
 export const STORE_KEY = "hawk.store.v3"
+export const SYNC_META_KEY = "hawk.sync_meta.v1"
 export const LEGACY_SESSION_KEY = "hawk.session.v2"
 export const LEGACY_SEARCHES_KEY = "hawk.searches.v1"
 
@@ -69,25 +71,25 @@ export interface HawkStore {
   downloadedMetadata: DownloadedMetaRecord[]
 }
 
-export const DEFAULT_PREFERENCES: UserPreferences = {
+export const DEFAULT_PREFERENCES: Readonly<UserPreferences> = Object.freeze({
   audioLanguage: "en",
   subtitleLanguage: "en",
   subtitlesEnabled: false,
   autoResume: true,
-  autoplay: false,
+  autoplay: true,
   defaultQuality: "1080p",
   theme: "dark",
-}
+})
 
-export const DEFAULT_STORE: HawkStore = {
+export const DEFAULT_STORE: Readonly<HawkStore> = Object.freeze({
   version: 3,
-  bookmarks: [],
-  history: [],
-  progress: {},
-  recentSearches: [],
-  preferences: DEFAULT_PREFERENCES,
-  downloadedMetadata: [],
-}
+  bookmarks: Object.freeze([]) as unknown as MediaBookmark[],
+  history: Object.freeze([]) as unknown as PlaybackRecord[],
+  progress: Object.freeze({}) as unknown as Record<string, PlaybackProgress>,
+  recentSearches: Object.freeze([]) as unknown as string[],
+  preferences: DEFAULT_PREFERENCES as UserPreferences,
+  downloadedMetadata: Object.freeze([]) as unknown as DownloadedMetaRecord[],
+})
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -683,6 +685,147 @@ export function clearRecentSearches(): void {
     if (typeof window !== "undefined" && window.localStorage) {
       window.localStorage.removeItem(LEGACY_SEARCHES_KEY)
     }
+  } catch {
+    // ignore
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Syncable State Extraction, Replacement & Metadata Persistence              */
+/* -------------------------------------------------------------------------- */
+
+export function sanitizeSyncableState(data: unknown): HawkSyncedState {
+  const obj = record(data)
+  if (!obj) {
+    return {
+      bookmarks: [],
+      history: [],
+      progress: {},
+      preferences: { ...DEFAULT_PREFERENCES },
+    }
+  }
+
+  const bookmarks = Array.isArray(obj.bookmarks)
+    ? obj.bookmarks.map(sanitizeBookmark).filter((b): b is MediaBookmark => b !== null).slice(0, MAX_BOOKMARKS)
+    : []
+
+  const history = Array.isArray(obj.history)
+    ? obj.history.map(sanitizeHistory).filter((h): h is PlaybackRecord => h !== null).slice(0, MAX_HISTORY)
+    : []
+
+  const progress: Record<string, PlaybackProgress> = {}
+  if (obj.progress && typeof obj.progress === "object") {
+    for (const [key, val] of Object.entries(obj.progress)) {
+      const item = sanitizeProgress(val)
+      if (item && Object.keys(progress).length < MAX_PROGRESS) {
+        progress[key] = item
+      }
+    }
+  }
+
+  const preferences = sanitizePreferences(obj.preferences)
+
+  return {
+    bookmarks,
+    history,
+    progress,
+    preferences,
+  }
+}
+
+export function extractSyncableState(store: HawkStore = getStorageSnapshot()): HawkSyncedState {
+  return {
+    bookmarks: store.bookmarks.slice(0, MAX_BOOKMARKS),
+    history: store.history.slice(0, MAX_HISTORY),
+    progress: { ...store.progress },
+    preferences: { ...store.preferences },
+  }
+}
+
+export function replaceSyncableState(
+  syncedState: HawkSyncedState,
+  options?: { preservePreferences?: boolean }
+): HawkStore {
+  const current = getStorageSnapshot()
+  const sanitized = sanitizeSyncableState(syncedState)
+  const next: HawkStore = {
+    ...current,
+    bookmarks: sanitized.bookmarks,
+    history: sanitized.history,
+    progress: sanitized.progress,
+    preferences: options?.preservePreferences ? { ...current.preferences } : sanitized.preferences,
+    recentSearches: current.recentSearches.slice(0, MAX_RECENT_SEARCHES),
+    downloadedMetadata: current.downloadedMetadata.slice(0, MAX_DOWNLOADED_METADATA),
+  }
+  saveStore(next)
+  return next
+}
+
+export function clearSyncableState(options?: { preservePreferences?: boolean }): HawkStore {
+  const current = getStorageSnapshot()
+  const next: HawkStore = {
+    ...current,
+    bookmarks: [],
+    history: [],
+    progress: {},
+    preferences: options?.preservePreferences ? { ...current.preferences } : { ...DEFAULT_PREFERENCES },
+    recentSearches: current.recentSearches.slice(0, MAX_RECENT_SEARCHES),
+    downloadedMetadata: current.downloadedMetadata.slice(0, MAX_DOWNLOADED_METADATA),
+  }
+  saveStore(next)
+  return next
+}
+
+export function getSyncMetadata(): SyncMetadata | null {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return null
+  }
+  try {
+    const raw = window.localStorage.getItem(SYNC_META_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.userId === "string" &&
+      typeof parsed.serverRevision === "number" &&
+      parsed.baseState &&
+      typeof parsed.baseState === "object"
+    ) {
+      return {
+        userId: parsed.userId,
+        serverRevision: parsed.serverRevision,
+        baseState: sanitizeSyncableState(parsed.baseState),
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+export function saveSyncMetadata(metadata: SyncMetadata): void {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return
+  }
+  try {
+    const clean: SyncMetadata = {
+      userId: metadata.userId,
+      serverRevision: metadata.serverRevision,
+      baseState: sanitizeSyncableState(metadata.baseState),
+    }
+    window.localStorage.setItem(SYNC_META_KEY, JSON.stringify(clean))
+  } catch {
+    // ignore
+  }
+}
+
+export function clearSyncMetadata(): void {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return
+  }
+  try {
+    window.localStorage.removeItem(SYNC_META_KEY)
   } catch {
     // ignore
   }

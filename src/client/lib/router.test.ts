@@ -23,6 +23,9 @@ describe("router mount detection & resolution", () => {
       expect(detectMount("/")).toBe("/")
       expect(detectMount("/search")).toBe("/")
       expect(detectMount("/library")).toBe("/")
+      expect(detectMount("/settings")).toBe("/")
+      expect(detectMount("/login")).toBe("/")
+      expect(detectMount("/u/johndoe")).toBe("/")
       expect(detectMount("/title/tt1375666")).toBe("/")
       expect(detectMount("/watch/tt1375666")).toBe("/")
       expect(detectMount("/watch/tt0903747/1/2")).toBe("/")
@@ -131,6 +134,24 @@ describe("router parseRoute & toPath", () => {
       expect(toPath(route, base)).toBe("/library")
     })
 
+    it("parses settings route /settings", () => {
+      const route = parseRoute("/settings", base)
+      expect(route).toEqual({ name: "settings" })
+      expect(toPath(route, base)).toBe("/settings")
+    })
+
+    it("parses login route /login", () => {
+      const route = parseRoute("/login", base)
+      expect(route).toEqual({ name: "login" })
+      expect(toPath(route, base)).toBe("/login")
+    })
+
+    it("parses profile route /u/:username", () => {
+      const route = parseRoute("/u/testuser", base)
+      expect(route).toEqual({ name: "profile", username: "testuser" })
+      expect(toPath(route, base)).toBe("/u/testuser")
+    })
+
     it("handles legacy /pick and legacy app title routes", () => {
       expect(parseRoute("/pick", base)).toEqual({ name: "home" })
       expect(parseRoute("/app/movie/tt1375666", base)).toEqual({
@@ -190,6 +211,15 @@ describe("router parseRoute & toPath", () => {
 
       expect(parseRoute("/custom/mount/library", base)).toEqual({ name: "library" })
       expect(toPath({ name: "library" }, base)).toBe("/custom/mount/library")
+
+      expect(parseRoute("/custom/mount/settings", base)).toEqual({ name: "settings" })
+      expect(toPath({ name: "settings" }, base)).toBe("/custom/mount/settings")
+
+      expect(parseRoute("/custom/mount/login", base)).toEqual({ name: "login" })
+      expect(toPath({ name: "login" }, base)).toBe("/custom/mount/login")
+
+      expect(parseRoute("/custom/mount/u/alice", base)).toEqual({ name: "profile", username: "alice" })
+      expect(toPath({ name: "profile", username: "alice" }, base)).toBe("/custom/mount/u/alice")
     })
   })
 
@@ -225,6 +255,15 @@ describe("router parseRoute & toPath", () => {
 
       expect(parseRoute("/~/+/library", base)).toEqual({ name: "library" })
       expect(toPath({ name: "library" }, base)).toBe("/~/+/library")
+
+      expect(parseRoute("/~/+/settings", base)).toEqual({ name: "settings" })
+      expect(toPath({ name: "settings" }, base)).toBe("/~/+/settings")
+
+      expect(parseRoute("/~/+/login", base)).toEqual({ name: "login" })
+      expect(toPath({ name: "login" }, base)).toBe("/~/+/login")
+
+      expect(parseRoute("/~/+/u/bob", base)).toEqual({ name: "profile", username: "bob" })
+      expect(toPath({ name: "profile", username: "bob" }, base)).toBe("/~/+/u/bob")
     })
   })
 

@@ -11,9 +11,21 @@ import {
   fetchPlaybackSources,
   fetchPlaybackStatus,
   fetchSubtitles,
+  getMe,
+  getPublicProfile,
+  getSessions,
+  getSync,
+  getUserProfile,
   isAbort,
+  isSyncConflict,
+  login,
+  logout,
+  putSync,
+  register,
+  revokeSession,
   searchCatalog,
   streamUrl,
+  updateUserProfile,
 } from "./api"
 import { setMountBase } from "./router"
 
@@ -217,6 +229,217 @@ describe("normalized API client", () => {
       setMountBase("/tenant/mount/")
       expect(streamUrl("pb-123")).toBe("/tenant/mount/api/stream/pb-123")
       expect(streamUrl("pb-123", 2)).toBe("/tenant/mount/api/stream/pb-123/2")
+    })
+  })
+
+  describe("account and sync API endpoints", () => {
+    it("sends same-origin credentials and correct payloads for auth endpoints", async () => {
+      const calls: { url: string; method: string; credentials?: RequestCredentials; body?: string }[] = []
+
+      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({
+          url: String(input),
+          method: init?.method || "GET",
+          credentials: init?.credentials,
+          body: init?.body ? String(init.body) : undefined,
+        })
+
+        if (String(input).includes("/api/auth/register")) {
+          return new Response(
+            JSON.stringify({
+              user: { id: "u1", username: "alice", createdAt: "2026-09-01T00:00:00Z", publicProfile: false },
+              session: { id: "s1", deviceName: "Chrome on macOS", createdAt: "2026-09-01T00:00:00Z", expiresAt: "2026-10-01T00:00:00Z" },
+            }),
+            { status: 201, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        if (String(input).includes("/api/auth/login")) {
+          return new Response(
+            JSON.stringify({
+              user: { id: "u1", username: "alice", createdAt: "2026-09-01T00:00:00Z", publicProfile: false },
+              session: { id: "s2", deviceName: "Chrome on macOS", createdAt: "2026-09-01T00:00:00Z", expiresAt: "2026-10-01T00:00:00Z" },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        if (String(input).includes("/api/auth/me")) {
+          return new Response(
+            JSON.stringify({
+              user: { id: "u1", username: "alice", createdAt: "2026-09-01T00:00:00Z", publicProfile: false },
+              session: { id: "s1", deviceName: "Chrome on macOS", createdAt: "2026-09-01T00:00:00Z", expiresAt: "2026-10-01T00:00:00Z" },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        if (String(input).includes("/api/auth/sessions/s2")) {
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+
+        if (String(input).includes("/api/auth/sessions")) {
+          return new Response(
+            JSON.stringify({
+              sessions: [
+                { id: "s1", deviceName: "Chrome", createdAt: "2026-09-01T00:00:00Z", expiresAt: "2026-10-01T00:00:00Z", isCurrent: true },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        if (String(input).includes("/api/auth/logout")) {
+          return new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } })
+      }
+
+      await register({ username: "alice", password: "password123", deviceName: "Chrome on macOS" })
+      expect(calls[0].url).toBe("/api/auth/register")
+      expect(calls[0].method).toBe("POST")
+      expect(calls[0].credentials).toBe("same-origin")
+      expect(JSON.parse(calls[0].body!)).toEqual({ username: "alice", password: "password123", deviceName: "Chrome on macOS" })
+
+      await login({ username: "alice", password: "password123", deviceName: "Chrome on macOS" })
+      expect(calls[1].url).toBe("/api/auth/login")
+      expect(calls[1].method).toBe("POST")
+
+      await getMe()
+      expect(calls[2].url).toBe("/api/auth/me")
+      expect(calls[2].method).toBe("GET")
+
+      const sessions = await getSessions()
+      expect(sessions.length).toBe(1)
+      expect(calls[3].url).toBe("/api/auth/sessions")
+
+      await revokeSession("s2")
+      expect(calls[4].url).toBe("/api/auth/sessions/s2")
+      expect(calls[4].method).toBe("DELETE")
+
+      await logout()
+      expect(calls[5].url).toBe("/api/auth/logout")
+      expect(calls[5].method).toBe("POST")
+    })
+
+    it("sends sync requests and detects 409 conflict correctly", async () => {
+      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.includes("/api/user/sync") && init?.method === "PUT") {
+          return new Response(
+            JSON.stringify({
+              error: "Conflict detected: server revision advanced",
+              code: "CONFLICT",
+              serverRevision: 2,
+              serverState: {
+                bookmarks: [],
+                history: [],
+                progress: {},
+                preferences: {
+                  audioLanguage: "en",
+                  subtitleLanguage: "en",
+                  subtitlesEnabled: false,
+                  autoResume: true,
+                  autoplay: true,
+                  defaultQuality: "1080p",
+                  theme: "dark",
+                },
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        if (url.includes("/api/user/sync")) {
+          return new Response(
+            JSON.stringify({
+              revision: 1,
+              state: {
+                bookmarks: [],
+                history: [],
+                progress: {},
+                preferences: {
+                  audioLanguage: "en",
+                  subtitleLanguage: "en",
+                  subtitlesEnabled: false,
+                  autoResume: true,
+                  autoplay: true,
+                  defaultQuality: "1080p",
+                  theme: "dark",
+                },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        return new Response("{}", { status: 200 })
+      }
+
+      const syncData = await getSync()
+      expect(syncData.revision).toBe(1)
+
+      try {
+        await putSync(0, syncData.state)
+        expect().unreachable()
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError)
+        expect((err as ApiError).status).toBe(409)
+        expect(isSyncConflict(err)).toBe(true)
+        if (isSyncConflict(err)) {
+          expect(err.details.serverRevision).toBe(2)
+        }
+      }
+    })
+
+    it("fetches and updates user profile and public profile", async () => {
+      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        if (url.includes("/api/user/profile") && init?.method === "PATCH") {
+          const body = JSON.parse(String(init.body))
+          return new Response(
+            JSON.stringify({ username: "alice", publicProfile: body.publicProfile }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        if (url.includes("/api/user/profile")) {
+          return new Response(
+            JSON.stringify({ username: "alice", publicProfile: false }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        if (url.includes("/api/public/profile/alice")) {
+          return new Response(
+            JSON.stringify({
+              user: { username: "alice", createdAt: "2026-09-01T00:00:00Z" },
+              bookmarks: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        }
+
+        return new Response("{}", { status: 200 })
+      }
+
+      const prof = await getUserProfile()
+      expect(prof.username).toBe("alice")
+      expect(prof.publicProfile).toBe(false)
+
+      const updated = await updateUserProfile({ publicProfile: true })
+      expect(updated.publicProfile).toBe(true)
+
+      const pub = await getPublicProfile("alice")
+      expect(pub.user.username).toBe("alice")
+      expect(pub.bookmarks).toEqual([])
     })
   })
 })

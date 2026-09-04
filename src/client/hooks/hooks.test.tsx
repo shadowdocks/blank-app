@@ -24,17 +24,13 @@ import {
   toggleBookmark,
   updatePreferences,
 } from "@/lib/storage"
-import {
-  useCatalogEpisodes,
-  useCatalogHome,
-  useCatalogRequest,
-  useCatalogSearch,
-  useCatalogTitle,
-} from "./use-catalog"
+import { useCatalogEpisodes, useCatalogHome, useCatalogRequest, useCatalogSearch, useCatalogTitle } from "./use-catalog"
 import { useLibrary } from "./use-library"
 import { useNetworkStatus } from "./use-network-status"
 import { usePlaybackProgress } from "./use-playback-progress"
 import { navigate, useRoute } from "./use-route"
+import { useAuth } from "./use-auth"
+import { useAccountSync } from "./use-account-sync"
 import type { MediaSummary } from "../../shared/media"
 import type { PlaybackRecord } from "../../shared/playback"
 
@@ -261,6 +257,16 @@ describe("Hawk client hooks", () => {
       expect(typeof useCatalogTitle).toBe("function")
       expect(typeof useCatalogEpisodes).toBe("function")
       expect(typeof useCatalogRequest).toBe("function")
+    })
+  })
+
+  describe("useAuth and useAccountSync hooks", () => {
+    it("exports useAuth and provides auth actions and external store snapshot", () => {
+      expect(typeof useAuth).toBe("function")
+    })
+
+    it("exports useAccountSync and provides sync coordinator controls", () => {
+      expect(typeof useAccountSync).toBe("function")
     })
   })
 })

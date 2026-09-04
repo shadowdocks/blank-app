@@ -1,5 +1,15 @@
 import { mountPath } from "@/lib/router"
 import type {
+  AccountSession,
+  AuthResponse,
+  HawkSyncedState,
+  LoginInput,
+  PublicUserProfile,
+  RegisterInput,
+  SyncSuccessResponse,
+  UserProfileResponse,
+} from "./account-types"
+import type {
   CatalogHome,
   CatalogPage,
   EpisodePage,
@@ -89,7 +99,10 @@ export function inFlightRequestCount(): number {
 async function executeRequest<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(url, init)
+    response = await fetch(url, {
+      credentials: "same-origin",
+      ...init,
+    })
   } catch (error) {
     if (isAbort(error)) throw error
     throw new ApiError("Network unreachable. Check your connection and retry.", 0)
@@ -143,11 +156,16 @@ async function executeRequest<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export interface RequestOptions extends RequestInit {
+  dedupe?: boolean
+}
+
+async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   const url = mountPath(path)
   const isGet = !init?.method || init.method.toUpperCase() === "GET"
+  const canDedupe = isGet && init?.dedupe !== false && init?.cache !== "no-store"
 
-  if (isGet) {
+  if (canDedupe) {
     if (init?.signal?.aborted) return Promise.reject(init.signal.reason ?? abortError())
     let pending = inFlightGets.get(url) as Promise<T> | undefined
     if (!pending) {
@@ -353,7 +371,166 @@ export function streamUrl(playbackIdOrInfoHash: string, fileIndex?: number | nul
   return mountPath(`api/stream/${segment}`)
 }
 
+/* -------------------------------------------------------------------------- */
+/* Account, Authentication & Sync API Methods                                  */
+/* -------------------------------------------------------------------------- */
+
+export async function register(
+  input: RegisterInput,
+  signal?: AbortSignal
+): Promise<AuthResponse> {
+  clearInFlightRequests()
+  return request<AuthResponse>("api/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal,
+  })
+}
+
+export async function login(
+  input: LoginInput,
+  signal?: AbortSignal
+): Promise<AuthResponse> {
+  clearInFlightRequests()
+  return request<AuthResponse>("api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    signal,
+  })
+}
+
+export async function logout(signal?: AbortSignal): Promise<{ ok: boolean }> {
+  clearInFlightRequests()
+  return request<{ ok: boolean }>("api/auth/logout", {
+    method: "POST",
+    signal,
+  })
+}
+
+export async function getMe(signal?: AbortSignal): Promise<AuthResponse> {
+  return request<AuthResponse>("api/auth/me", {
+    signal,
+    cache: "no-store",
+    dedupe: false,
+  })
+}
+
+export async function getSessions(signal?: AbortSignal): Promise<AccountSession[]> {
+  const result = await request<{ sessions: AccountSession[] }>("api/auth/sessions", {
+    signal,
+    cache: "no-store",
+    dedupe: false,
+  })
+  return result.sessions
+}
+
+export async function revokeSession(
+  sessionId: string,
+  signal?: AbortSignal
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(`api/auth/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+    signal,
+  })
+}
+
+export async function getSync(signal?: AbortSignal): Promise<SyncSuccessResponse> {
+  return request<SyncSuccessResponse>("api/user/sync", {
+    signal,
+    cache: "no-store",
+    dedupe: false,
+  })
+}
+
+export const getSyncState = getSync
+
+export async function putSync(
+  baseRevision: number,
+  state: HawkSyncedState,
+  signal?: AbortSignal
+): Promise<SyncSuccessResponse> {
+  return request<SyncSuccessResponse>("api/user/sync", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ baseRevision, state }),
+    signal,
+  })
+}
+
+export const putSyncState = putSync
+
+export async function getUserProfile(signal?: AbortSignal): Promise<UserProfileResponse> {
+  return request<UserProfileResponse>("api/user/profile", {
+    signal,
+    cache: "no-store",
+    dedupe: false,
+  })
+}
+
+export async function updateUserProfile(
+  patch: { publicProfile: boolean },
+  signal?: AbortSignal
+): Promise<UserProfileResponse> {
+  return request<UserProfileResponse>("api/user/profile", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+    signal,
+  })
+}
+
+export async function getPublicProfile(
+  username: string,
+  signal?: AbortSignal
+): Promise<PublicUserProfile> {
+  return request<PublicUserProfile>(`api/public/profile/${encodeURIComponent(username)}`, {
+    signal,
+  })
+}
+
+export function isSyncConflict(error: unknown): error is ApiError & {
+  details: {
+    error: string
+    code: "CONFLICT"
+    serverRevision: number
+    serverState: HawkSyncedState
+  }
+} {
+  if (error instanceof ApiError && error.status === 409) {
+    const details = error.details as any
+    return (
+      details &&
+      typeof details === "object" &&
+      typeof details.serverRevision === "number" &&
+      details.serverState &&
+      typeof details.serverState === "object"
+    )
+  }
+  return false
+}
+
 export const apiClient = {
+  auth: {
+    register,
+    login,
+    logout,
+    me: getMe,
+    sessions: getSessions,
+    revokeSession,
+  },
+  sync: {
+    get: getSync,
+    put: putSync,
+  },
+  user: {
+    getProfile: getUserProfile,
+    updateProfile: updateUserProfile,
+  },
+  profile: {
+    get: getPublicProfile,
+  },
   catalog: {
     home: fetchCatalogHome,
     search: searchCatalog,

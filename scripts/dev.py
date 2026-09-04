@@ -126,10 +126,17 @@ def main() -> int:
             30,
         )
         log_line("api", "ready", f"node={NODE_VERSION} url=http://127.0.0.1:{HAWK_PORT}")
+        wrangler = ROOT / "cloudflare" / "node_modules" / "wrangler" / "bin" / "wrangler.js"
+        subprocess.run(
+            [node, wrangler, "d1", "migrations", "apply", "hawk-users", "--local"],
+            cwd=ROOT / "cloudflare",
+            env=env,
+            check=True,
+        )
         edge = subprocess.Popen(
             [
                 node,
-                ROOT / "cloudflare" / "node_modules" / "wrangler" / "bin" / "wrangler.js",
+                wrangler,
                 "dev",
                 "--ip",
                 "127.0.0.1",

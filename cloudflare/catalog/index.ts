@@ -7,11 +7,13 @@ import {
 import {
   DISCOVER_QUERY,
   EPISODES_QUERY,
+  HERO_ART_QUERY,
   TITLE_DETAIL_QUERY,
 } from "./queries";
 import {
   type SuggestionItem,
   type TitleNode,
+  normalizeBackdrop,
   normalizeEpisodes,
   normalizeMediaSummary,
   normalizeSuggestionItem,
@@ -146,7 +148,22 @@ async function handleHomeRoute(
       };
     }
 
-    const hero = sections[0]?.items[0] ?? null;
+    const heroSummary = sections[0]?.items[0] ?? null;
+    let hero = heroSummary;
+    if (heroSummary) {
+      try {
+        const heroData = await imdbGraphql<{ title?: TitleNode | null }>(
+          env,
+          requestId,
+          HERO_ART_QUERY,
+          { id: heroSummary.imdbId }
+        );
+        const backdropUrl = heroData.title ? normalizeBackdrop(heroData.title) : null;
+        if (backdropUrl) hero = { ...heroSummary, backdropUrl };
+      } catch {
+        // The poster remains a usable fallback when optional hero art fails.
+      }
+    }
     return {
       hero,
       sections,

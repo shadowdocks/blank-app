@@ -108,6 +108,18 @@ export default defineConfig({
         target: "http://127.0.0.1:8787",
         changeOrigin: true,
       },
+      "/api/auth": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: false,
+      },
+      "/api/user": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: false,
+      },
+      "/api/public/profile": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: false,
+      },
       "/api": {
         target: "http://127.0.0.1:9000",
         changeOrigin: true,

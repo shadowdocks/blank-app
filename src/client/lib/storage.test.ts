@@ -5,13 +5,18 @@ import {
   clearPlaybackProgress,
   clearRecentSearches,
   clearStorageCache,
+  clearSyncableState,
+  clearSyncMetadata,
+  DEFAULT_PREFERENCES,
   DEFAULT_STORE,
+  extractSyncableState,
   getBookmarks,
   getDownloadedMetadata,
   getHistory,
   getPreferences,
   getProgress,
   getStorageSnapshot,
+  getSyncMetadata,
   historyRecordKey,
   isBookmarked,
   LEGACY_SEARCHES_KEY,
@@ -26,10 +31,12 @@ import {
   removeBookmark,
   removeDownloadedMetadata,
   removeHistory,
+  replaceSyncableState,
   saveDownloadedMetadata,
   savePlaybackProgress,
   saveRecentSearch,
   saveStore,
+  saveSyncMetadata,
   STORE_KEY,
   toggleBookmark,
   updatePreferences,
@@ -422,6 +429,155 @@ describe("versioned bounded storage & migration", () => {
 
       removeDownloadedMetadata("dl-1")
       expect(getDownloadedMetadata().length).toBe(0)
+    })
+  })
+
+  describe("syncable state and sync metadata", () => {
+    it("ensures DEFAULT_PREFERENCES and DEFAULT_STORE are immutable-safe", () => {
+      expect(Object.isFrozen(DEFAULT_PREFERENCES)).toBe(true)
+      expect(Object.isFrozen(DEFAULT_STORE)).toBe(true)
+      expect(DEFAULT_PREFERENCES.autoplay).toBe(true)
+      expect(() => {
+        // @ts-expect-error mutating frozen object
+        DEFAULT_PREFERENCES.autoplay = false
+      }).toThrow()
+    })
+
+    it("extracts and replaces only syncable fields while preserving searches and downloads", () => {
+      saveRecentSearch("matrix")
+      const dlMeta: DownloadedMetaRecord = {
+        id: "dl-local",
+        imdbId: "tt0133093",
+        mediaType: "movie",
+        title: "The Matrix",
+        season: null,
+        episode: null,
+        sizeBytes: 2000000000,
+        downloadedAt: "2026-09-01T00:00:00.000Z",
+        completed: true,
+        posterUrl: null,
+      }
+      saveDownloadedMetadata(dlMeta)
+
+      const extracted = extractSyncableState()
+      expect(extracted.bookmarks).toEqual([])
+      expect(extracted.history).toEqual([])
+      expect(extracted.progress).toEqual({})
+      expect(extracted.preferences.autoplay).toBe(true)
+
+      const newSyncState = {
+        bookmarks: [
+          {
+            imdbId: "tt0133093",
+            title: "The Matrix",
+            mediaType: "movie" as const,
+            year: 1999,
+            rating: 8.7,
+            posterUrl: null,
+            backdropUrl: null,
+            genres: ["Action", "Sci-Fi"],
+            bookmarkedAt: "2026-09-02T00:00:00.000Z",
+          },
+        ],
+        history: [],
+        progress: {
+          tt0133093: {
+            id: "tt0133093",
+            imdbId: "tt0133093",
+            mediaType: "movie" as const,
+            season: null,
+            episode: null,
+            positionSeconds: 500,
+            durationSeconds: 8000,
+            progressFraction: 0.0625,
+            completed: false,
+            updatedAt: "2026-09-02T00:00:00.000Z",
+          },
+        },
+        preferences: {
+          ...DEFAULT_PREFERENCES,
+          theme: "light" as const,
+        },
+      }
+
+      replaceSyncableState(newSyncState)
+
+      expect(getBookmarks().length).toBe(1)
+      expect(getBookmarks()[0].imdbId).toBe("tt0133093")
+      expect(getProgress("tt0133093")?.positionSeconds).toBe(500)
+      expect(getPreferences().theme).toBe("light")
+
+      // Device-local searches and downloads are preserved!
+      expect(loadRecentSearches()).toEqual(["matrix"])
+      expect(getDownloadedMetadata().length).toBe(1)
+      expect(getDownloadedMetadata()[0].id).toBe("dl-local")
+    })
+
+    it("clears syncable state on logout while preserving local downloads and searches", () => {
+      saveRecentSearch("interstellar")
+      const dlMeta: DownloadedMetaRecord = {
+        id: "dl-local-2",
+        imdbId: "tt0816692",
+        mediaType: "movie",
+        title: "Interstellar",
+        season: null,
+        episode: null,
+        sizeBytes: 3000000000,
+        downloadedAt: "2026-09-01T00:00:00.000Z",
+        completed: true,
+        posterUrl: null,
+      }
+      saveDownloadedMetadata(dlMeta)
+
+      const interstellar: MediaSummary = {
+        id: "tt0816692",
+        imdbId: "tt0816692",
+        tmdbId: 157336,
+        title: "Interstellar",
+        originalTitle: "Interstellar",
+        mediaType: "movie",
+        year: 2014,
+        endYear: null,
+        rating: 8.7,
+        voteCount: 2000000,
+        posterUrl: null,
+        backdropUrl: null,
+        genres: [],
+      }
+      toggleBookmark(interstellar)
+      expect(getBookmarks().length).toBe(1)
+
+      clearSyncableState({ preservePreferences: true })
+
+      expect(getBookmarks().length).toBe(0)
+      expect(getHistory().length).toBe(0)
+      expect(Object.keys(getStorageSnapshot().progress).length).toBe(0)
+      expect(loadRecentSearches()).toEqual(["interstellar"])
+      expect(getDownloadedMetadata().length).toBe(1)
+    })
+
+    it("persists, retrieves, and clears sync metadata", () => {
+      expect(getSyncMetadata()).toBeNull()
+
+      const meta = {
+        userId: "user-123",
+        serverRevision: 4,
+        baseState: {
+          bookmarks: [],
+          history: [],
+          progress: {},
+          preferences: { ...DEFAULT_PREFERENCES },
+        },
+      }
+
+      saveSyncMetadata(meta)
+      const retrieved = getSyncMetadata()
+      expect(retrieved).not.toBeNull()
+      expect(retrieved?.userId).toBe("user-123")
+      expect(retrieved?.serverRevision).toBe(4)
+
+      clearSyncMetadata()
+      expect(getSyncMetadata()).toBeNull()
     })
   })
 })

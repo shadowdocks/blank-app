@@ -21,6 +21,14 @@
       }
     ]
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hawk-users",
+      "database_id": "4391a90c-b7a9-4bc3-bb05-a3130a0889fd",
+      "migrations_dir": "migrations"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",
@@ -33,6 +41,14 @@
       "namespace_id": "4608570",
       "simple": {
         "limit": 120,
+        "period": 60
+      }
+    },
+    {
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "4608571",
+      "simple": {
+        "limit": 10,
         "period": 60
       }
     }

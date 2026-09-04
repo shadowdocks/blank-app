@@ -100,7 +100,7 @@ export interface TitleNode {
   primaryImage?: { url?: string | null; width?: number | null; height?: number | null } | null;
   images?: {
     edges?: Array<{
-      node?: { url?: string | null; width?: number | null; height?: number | null } | null;
+      node?: { url?: string | null; width?: number | null; height?: number | null; type?: string | null } | null;
     }>;
   } | null;
   latestTrailer?: {
@@ -167,6 +167,16 @@ export interface TitleNode {
   } | null;
 }
 
+export function normalizeBackdrop(node: Pick<TitleNode, "images">): string | null {
+  const candidates = (node.images?.edges ?? [])
+    .flatMap(({ node: image }) => image?.url && image.width && image.height && image.width / image.height >= 1.5 ? [image] : []);
+  const stills = candidates.filter((image) => image.type?.toLowerCase() === "still_frame");
+  const untyped = candidates.filter((image) => !image.type);
+  const backdrop = (stills.length ? stills : untyped)
+    .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))[0];
+  return imdbImage(backdrop?.url, 1280);
+}
+
 export function normalizeMediaSummary(node: TitleNode): MediaSummary {
   const genres =
     node.genres?.genres
@@ -195,9 +205,6 @@ export function normalizeTitleDetail(
   fallback?: Partial<MediaDetails>
 ): MediaDetails {
   const summary = normalizeMediaSummary(node);
-  const backdrop = (node.images?.edges ?? [])
-    .flatMap(({ node: image }) => image?.url && image.width && image.height && image.width / image.height >= 1.5 ? [image] : [])
-    .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))[0];
 
   const countries =
     node.countriesOfOrigin?.countries
@@ -286,7 +293,7 @@ export function normalizeTitleDetail(
   return {
     ...summary,
     tmdbId: fallback?.tmdbId ?? null,
-    backdropUrl: imdbImage(backdrop?.url, 1280) ?? fallback?.backdropUrl ?? null,
+    backdropUrl: normalizeBackdrop(node) ?? fallback?.backdropUrl ?? null,
     overview: node.plot?.plotText?.plainText ?? fallback?.overview ?? null,
     runtimeMinutes,
     releaseDate: formatReleaseDate(node.releaseDate) ?? fallback?.releaseDate ?? null,
