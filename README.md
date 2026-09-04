@@ -50,12 +50,16 @@ Run the stored diagnostic torrent in an isolated temporary directory for 60 seco
 
 ```sh
 npm run torrent:benchmark -- 60
-npm run torrent:benchmark -- 60 --tcp
+npm run torrent:benchmark -- 60 --utp
 ```
 
 Each five-second sample reports connected, unchoked, and active peers; transport types;
 outstanding piece requests; aggregate peer speed; CPU and event-loop utilization; event-loop
 delay; memory; disk throughput; and DHT size. The temporary download is deleted afterward.
+
+Hawk uses TCP peers by default. Testing on Streamlit Community Cloud showed about 47 MB/s
+average over TCP versus about 5 MB/s over uTP for the same torrent. Set `HAWK_UTP=1` or use
+the benchmark's `--utp` option only when comparing transports on another host.
 
 ## Streamlit Cloud operations
 

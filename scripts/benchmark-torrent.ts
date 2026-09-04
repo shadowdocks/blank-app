@@ -4,11 +4,11 @@ import { join } from "node:path";
 
 const magnet = "magnet:?xt=urn:btih:E3ED889793D8A98B8080ECAFDBF7EDE30AB3889A&dn=Disclosure%20Day%20(2026)%20%5B1080p%5D%20%5BWEBRip%5D%20%5B5.1%5D&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Ftracker.bittor.pw%3A1337%2Fannounce&tr=udp%3A%2F%2Fpublic.popcorn-tracker.org%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce&tr=udp%3A%2F%2Fexodus.desync.com%3A6969&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Fglotorrents.pw%3A6969%2Fannounce&tr=udp%3A%2F%2Ftracker.coppersurfer.tk%3A6969&tr=udp%3A%2F%2Ftorrent.gresille.org%3A80%2Fannounce&tr=udp%3A%2F%2Fp4p.arenabg.com%3A1337&tr=udp%3A%2F%2Ftracker.internetwarriors.net%3A1337";
 const seconds = Math.max(10, Number(process.argv.find((argument) => /^\d+$/.test(argument)) ?? 60));
-const transport = process.argv.includes("--tcp") ? "tcp" : "utp";
+const transport = process.argv.includes("--utp") ? "utp" : "tcp";
 const sampleEveryMs = 5000;
 const downloadDirectory = mkdtempSync(join(tmpdir(), "hawk-torrent-benchmark-"));
 process.env.DL_DIR = downloadDirectory;
-if (transport === "tcp") process.env.HAWK_UTP = "0";
+process.env.HAWK_UTP = transport === "utp" ? "1" : "0";
 
 const torrentModule = await import("../src/torrent.ts");
 const started = await torrentModule.startTorrent(magnet).json() as { infoHash: string };

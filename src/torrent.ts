@@ -5,7 +5,7 @@ import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import WebTorrent from "webtorrent";
 
 const directory = process.env.DL_DIR ?? "/tmp/hawk-downloads";
-const useUtp = process.env.HAWK_UTP !== "0";
+const useUtp = process.env.HAWK_UTP === "1";
 const liveTrackers = [
   "udp://tracker.opentrackr.org:1337/announce",
   "udp://open.demonii.com:1337/announce",
