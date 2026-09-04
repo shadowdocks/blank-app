@@ -10,9 +10,13 @@
     "build": "vite build",
     "cloud": "bun run scripts/streamlit-cloud.ts",
     "dev": "uv run python scripts/dev.py",
+    "dev:edge": "npm --prefix cloudflare run dev",
     "dev:frontend": "vite",
+    "edge:check": "npm --prefix cloudflare run check",
+    "edge:deploy": "npm --prefix cloudflare run deploy",
     "start": "tsx src/server.ts",
-    "typecheck": "tsc --noEmit && tsc --ignoreConfig --noEmit --target ESNext --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck scripts/streamlit-cloud.ts"
+    "test": "bun test src cloudflare",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json && tsc --ignoreConfig --noEmit --target ESNext --module NodeNext --moduleResolution NodeNext --types node --skipLibCheck scripts/streamlit-cloud.ts"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",

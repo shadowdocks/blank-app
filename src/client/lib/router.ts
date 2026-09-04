@@ -1,74 +1,119 @@
 import { useSyncExternalStore } from "react"
 
-import type { MediaType, Title } from "@/lib/types"
+import type { MediaType } from "../../shared/media"
 
 /**
- * History API routing. Every browser-visible path is mount-relative:
+ * History API routing for Hawk.
  *
- *   /                       picker
- *   /search                 search
- *   /app/:type/:id          selected title
- *   /app/:type/:id/sources  source picker
- *   /watch/:infoHash        watch
+ * Supported routes:
+ *   /                                          home
+ *   /search                                    search
+ *   /title/:imdbId                             title details
+ *   /watch/:imdbId                             watch movie
+ *   /watch/:imdbId/:season/:episode            watch episode
+ *   /library                                   saved library
  *
- * Behind Streamlit the same paths sit under /~/+/. No hash is ever read or
- * written.
+ * Legacy picker and app URLs normalize to the nearest current route.
+ *
+ * Mount-aware for:
+ *   - Root mount: "/"
+ *   - Streamlit cloud / local: "/~/+/"
+ *   - Arbitrary nested mount: e.g. "/subpath/"
  */
+
+export interface HomeRoute {
+  name: "home"
+}
+
+export interface SearchRoute {
+  name: "search"
+  query?: string
+}
+
 export interface TitleRoute {
   name: "title"
-  type: MediaType
   id: string
+  imdbId?: string
+  type: MediaType
+}
+
+export interface WatchMovieRoute {
+  name: "watch"
+  imdbId: string
+  season?: null | undefined
+  episode?: null | undefined
+}
+
+export interface WatchEpisodeRoute {
+  name: "watch"
+  imdbId: string
+  season: number
+  episode: number
+}
+
+export type WatchRoute = WatchMovieRoute | WatchEpisodeRoute
+
+export interface LibraryRoute {
+  name: "library"
 }
 
 export type Route =
-  | { name: "pick" }
-  | { name: "search" }
+  | HomeRoute
+  | SearchRoute
   | TitleRoute
-  | { name: "sources"; type: MediaType; id: string }
-  | { name: "watch"; infoHash: string }
+  | WatchRoute
+  | LibraryRoute
 
-export const STEPS = ["pick", "title", "sources", "watch"] as const
-
-export type Step = (typeof STEPS)[number]
-
-export const STEP_LABELS: Record<Step, string> = {
-  pick: "Mood",
-  title: "Title",
-  sources: "Sources",
-  watch: "Watch",
-}
-
-const PICK: Route = { name: "pick" }
-
-/** Streamlit always mounts a custom app here; local dev serves it from "/". */
 const MOUNT_MARKER = "/~/+/"
+const ROUTE_TAIL = /(?:\/|^)(?:search|library|title\/[^/]+|watch\/[^/]+(?:\/[^/]+\/[^/]+)?|app\/(?:movie|tv)\/[^/]+(?:\/sources)?)\/?$/
 
-/** Every route tail, so the mount can be recovered outside Streamlit too. */
-const ROUTE_TAIL = /(?:^|\/)(?:search|app\/(?:movie|tv)\/[^/]+(?:\/sources)?|watch\/[^/]+)\/?$/
-
+let customMount: string | null = null
 let cachedMount: string | null = null
 
+export function setMountBase(mount: string | null): void {
+  customMount = mount
+  cachedMount = null
+  cachedSnapshotPath = null
+}
+
 /**
- * The prefix Hawk is served from, always with a trailing slash: "/" locally,
- * "/~/+/" behind Streamlit. Derived from the current path rather than a build
- * constant, so the same bundle works in both places.
+ * Detects the mount base from a pathname (defaulting to window.location.pathname).
+ * Always returns a prefix ending with a slash, e.g. "/" or "/~/+/" or "/hawk/".
  */
-export function mountBase(): string {
-  if (cachedMount !== null) return cachedMount
-  const path = window.location.pathname
+export function detectMount(pathname?: string): string {
+  if (customMount !== null) {
+    const trimmed = customMount.replace(/\/+$/, "")
+    return trimmed ? `${trimmed}/` : "/"
+  }
+
+  const path = pathname ?? (typeof window !== "undefined" && window.location ? window.location.pathname : "/")
   const marker = path.indexOf(MOUNT_MARKER)
   if (marker >= 0) {
-    cachedMount = path.slice(0, marker + MOUNT_MARKER.length)
-    return cachedMount
+    return path.slice(0, marker + MOUNT_MARKER.length)
   }
+
   const trimmed = path.replace(ROUTE_TAIL, "/") || "/"
-  cachedMount = trimmed.endsWith("/") ? trimmed : `${trimmed}/`
+  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`
+}
+
+export function mountBase(): string {
+  if (cachedMount !== null) return cachedMount
+  cachedMount = detectMount()
   return cachedMount
 }
 
-/** Turns a mount-relative path such as "api/search" into a full path. */
+/**
+ * Turns a mount-relative path into an absolute pathname for fetch or asset URLs.
+ * e.g. mountPath("api/catalog/home") -> "/api/catalog/home" or "/~/+/api/catalog/home"
+ */
 export function mountPath(path: string): string {
-  return `${mountBase()}${path.replace(/^\/+/, "")}`
+  const base = mountBase()
+  const clean = path.replace(/^\/+/, "")
+  return `${base}${clean}`
+}
+
+export function mountAsset(path: string): string {
+  return mountPath(path)
 }
 
 function decode(segment: string): string {
@@ -83,97 +128,96 @@ function isMediaType(value: string | undefined): value is MediaType {
   return value === "movie" || value === "tv"
 }
 
-export function parseRoute(pathname: string = window.location.pathname): Route {
-  const mount = mountBase()
-  const rest = pathname.startsWith(mount) ? pathname.slice(mount.length) : pathname
-  const [head, second, third, fourth, ...extra] = rest.split("/").filter(Boolean).map(decode)
+export function parseRoute(pathname?: string, base?: string): Route {
+  const mount = base ?? mountBase()
+  const path = pathname ?? (typeof window !== "undefined" && window.location ? window.location.pathname : "/")
+  const rest = path.startsWith(mount) ? path.slice(mount.length) : path.replace(/^\/+/, "")
+  const segments = rest.split("/").filter(Boolean).map(decode)
 
-  if (!head) return PICK
-  if (extra.length) return PICK
-  if (head === "search" && !second) return { name: "search" }
-  if (head === "watch" && second && !third) return { name: "watch", infoHash: second }
-  if (head === "app" && isMediaType(second) && third) {
-    if (!fourth) return { name: "title", type: second, id: third }
-    if (fourth === "sources") return { name: "sources", type: second, id: third }
+  if (segments.length === 0) return { name: "home" }
+
+  const [head, second, third, fourth, ...extra] = segments
+  if (extra.length > 0) return { name: "home" }
+
+  if (head === "search" && !second) {
+    return { name: "search" }
   }
-  return PICK
+
+  if (head === "library" && !second) {
+    return { name: "library" }
+  }
+
+  if (head === "title" && second && !third) {
+    return { name: "title", imdbId: second, id: second, type: "movie" }
+  }
+
+  if (head === "watch" && second) {
+    if (!third) {
+      return { name: "watch", imdbId: second }
+    }
+    if (third && fourth && !segments[4]) {
+      const season = parseInt(third, 10)
+      const episode = parseInt(fourth, 10)
+      if (Number.isFinite(season) && Number.isFinite(episode)) {
+        return { name: "watch", imdbId: second, season, episode }
+      }
+    }
+  }
+
+  if (head === "pick" && !second) {
+    return { name: "home" }
+  }
+
+  if (head === "app" && isMediaType(second) && third) {
+    if (!fourth) {
+      return { name: "title", imdbId: third, id: third, type: second }
+    }
+    if (fourth === "sources" && !segments[4]) {
+      return { name: "title", imdbId: third, type: second, id: third }
+    }
+  }
+
+  return { name: "home" }
 }
 
-export function toPath(route: Route): string {
-  const mount = mountBase()
+export function toPath(route: Route, base?: string): string {
+  const mount = base ?? mountBase()
   switch (route.name) {
+    case "home":
+      return mount
     case "search":
       return `${mount}search`
-    case "title":
-      return `${mount}app/${route.type}/${encodeURIComponent(route.id)}`
-    case "sources":
-      return `${mount}app/${route.type}/${encodeURIComponent(route.id)}/sources`
-    case "watch":
-      return `${mount}watch/${encodeURIComponent(route.infoHash)}`
+    case "library":
+      return `${mount}library`
+    case "title": {
+      const id = route.imdbId || route.id || ""
+      return `${mount}title/${encodeURIComponent(id)}`
+    }
+    case "watch": {
+      const id = route.imdbId
+      if (typeof route.season === "number" && typeof route.episode === "number") {
+        return `${mount}watch/${encodeURIComponent(id)}/${route.season}/${route.episode}`
+      }
+      return `${mount}watch/${encodeURIComponent(id)}`
+    }
     default:
       return mount
   }
 }
 
-export function stepOf(route: Route): Step | null {
-  switch (route.name) {
-    case "pick":
-      return "pick"
-    case "title":
-      return "title"
-    case "sources":
-      return "sources"
-    case "watch":
-      return "watch"
-    default:
-      // Search is not a step in the mood-to-watch flow, so it shows no trail.
-      return null
-  }
-}
-
 /* -------------------------------------------------------------------------- */
-/* Title identity                                                             */
-/* -------------------------------------------------------------------------- */
-
-/** TMDB sends numbers, the IMDb fallback sends "tt..." strings. */
-export function titleIdOf(title: Title): string | null {
-  if (title.id === null || title.id === undefined) return null
-  const value = String(title.id).trim()
-  return value ? value : null
-}
-
-export function titleTypeOf(title: Title, fallback: MediaType): MediaType {
-  return isMediaType(title.mediaType ?? undefined) ? (title.mediaType as MediaType) : fallback
-}
-
-export function titleRoute(title: Title, fallback: MediaType): TitleRoute | null {
-  const id = titleIdOf(title)
-  if (!id) return null
-  return { name: "title", type: titleTypeOf(title, fallback), id }
-}
-
-export function titleMatches(
-  title: Title,
-  type: MediaType,
-  id: string,
-  fallback: MediaType
-): boolean {
-  return titleIdOf(title)?.toLowerCase() === id.toLowerCase() && titleTypeOf(title, fallback) === type
-}
-
-/* -------------------------------------------------------------------------- */
-/* Navigation                                                                 */
+/* Navigation & Reactivity                                                    */
 /* -------------------------------------------------------------------------- */
 
 const listeners = new Set<() => void>()
-
-let snapshotPath: string | null = null
-let snapshot: Route = PICK
+let cachedSnapshotPath: string | null = null
+let snapshot: Route = { name: "home" }
 
 function getSnapshot(): Route {
+  if (typeof window === "undefined" || !window.location) return { name: "home" }
   const path = window.location.pathname
-  if (path !== snapshotPath) {
-    snapshotPath = path
+  if (path !== cachedSnapshotPath) {
+    cachedSnapshotPath = path
     snapshot = parseRoute(path)
   }
   return snapshot
@@ -181,22 +225,30 @@ function getSnapshot(): Route {
 
 function subscribe(onChange: () => void): () => void {
   listeners.add(onChange)
-  window.addEventListener("popstate", onChange)
+  if (typeof window !== "undefined") {
+    window.addEventListener("popstate", onChange)
+  }
   return () => {
     listeners.delete(onChange)
-    window.removeEventListener("popstate", onChange)
+    if (typeof window !== "undefined") {
+      window.removeEventListener("popstate", onChange)
+    }
   }
 }
 
 export function navigate(route: Route, options?: { replace?: boolean }): void {
   const path = toPath(route)
   const replace = options?.replace ?? false
-  if (path === window.location.pathname && !replace) return
-  if (replace) window.history.replaceState(null, "", path)
-  else window.history.pushState(null, "", path)
+  if (typeof window !== "undefined" && window.location && window.history) {
+    if (path === window.location.pathname && !replace) return
+    if (replace) window.history.replaceState(null, "", path)
+    else window.history.pushState(null, "", path)
+  }
+  cachedSnapshotPath = path
+  snapshot = route
   for (const listener of listeners) listener()
 }
 
 export function useRoute(): Route {
-  return useSyncExternalStore(subscribe, getSnapshot)
+  return useSyncExternalStore(subscribe, getSnapshot, () => ({ name: "home" }))
 }

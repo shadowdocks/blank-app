@@ -1,0 +1,56 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "hawk-proxy",
+  "main": "worker.ts",
+  "compatibility_date": "2026-09-04",
+  "workers_dev": true,
+  "vars": {
+    "UPSTREAM_ORIGIN": "https://hawkkk.streamlit.app",
+    "UPSTREAM_ORIGINS": "https://hawkkk.streamlit.app",
+    "UPSTREAM_PREFIX": "/~/+"
+  },
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TOKEN_BROKER",
+        "class_name": "TokenBroker"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TokenBroker"]
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "4608570",
+      "simple": {
+        "limit": 120,
+        "period": 60
+      }
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "hawk.vctx.io",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1
+    }
+  }
+}

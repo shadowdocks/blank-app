@@ -1,6 +1,11 @@
 .streamlit/secrets.toml
 .streamlit-cloud.json
 node_modules/
+.DS_Store
+.dev.vars
+.wrangler/
+cloudflare/worker-configuration.d.ts
+/vendor/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

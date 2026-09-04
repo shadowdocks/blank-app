@@ -1,70 +1,69 @@
 # Hawk
 
-A small mood-first movie picker and torrent streamer deployed through one Streamlit URL.
+Hawk is an IMDb-first movie and TV browser with torrent playback, subtitles, a local library, and offline downloads. It is a relative, installable PWA that works at a root domain, below Streamlit's `/~/+/` mount, or below another path without rebuilding.
 
-Streamlit runs this repository as an ASGI application on port 8501. Its Python entrypoint downloads a pinned Node runtime, starts Hawk privately on `127.0.0.1:9000`, and streams every browser request through the public Streamlit server. Video byte ranges pass through unchanged, so seeking and progressive playback work without another public port.
+## Architecture
 
-## What is included
+- **Cloudflare Worker:** Serves the catalog API from focused IMDb GraphQL queries, adds TMDB data only when IMDb fields are missing, caches public metadata at the edge, and proxies the app to one or more configured origins.
+- **React PWA:** Uses Radix primitives, shadcn components, Tailwind, and Vidstack. Routes, assets, API calls, manifest scope, and service-worker scope are mount-relative.
+- **Node backend:** Searches Torrentio and APiBay concurrently, ranks and deduplicates sources, manages a bounded rqbit torrent pool, selects exact movie or episode files, converts subtitles to WebVTT, and streams byte ranges.
+- **Streamlit supervisor:** Installs checksum-pinned runtimes, starts rqbit and Node privately, and exposes the app through one Streamlit port.
 
-- Mood, movie or TV, and duration selection
-- Searchable IMDb catalog and shareable title URLs
-- TMDB recommendations with IMDb-enriched curated fallback
-- Indexed torrent source search and direct magnet input
-- React, shadcn, Radix primitives, Tailwind CSS, and tokenized styling
-- Lazy-loaded Vidstack player with responsive controls and selectable SRT/WebVTT subtitles
-- Checksum-pinned rqbit 9.0.1 with TCP, DHT, expanded trackers, and a 128-peer ceiling
-- Native seek-aware HTTP Range video streaming with selected subtitle files
-- History API routes with refresh-safe title, source, and playback state
-- Nookwire startup in noninteractive batch mode with authentication disabled
+The app has no accounts, database, analytics, ads, browser scraping, or remote personal-data sync. Bookmarks, history, preferences, progress, and download metadata remain in the browser.
 
-There is no library, history, account system, Plex integration, or persistent database.
+## Product surface
 
-## Configuration
+- IMDb popularity rails, search, discovery, details, ratings, cast, trailers, similar titles, seasons, and episodes
+- Automatic best-source playback with manual source switching
+- Concurrent torrents with bounded idle cleanup instead of one global torrent
+- Torrent sidecar and OpenSubtitles tracks available from the first playback
+- Installable phone PWA with a precached shell and explicit update flow
+- Resumable offline video downloads using OPFS with IndexedDB fallback
+- Local byte-range playback, artwork, and subtitles while offline
+- Responsive, keyboard-accessible Hawk design with reduced-motion support
 
-Add an optional TMDB key to the Streamlit app settings:
-
-```toml
-TMDB_API_KEY = "your-key"
-```
-
-Without it, Hawk uses the bundled recommendations. The app and SSH endpoint do not require authentication, so deploy it only with the visibility you intend.
-
-Nookwire derives a stable endpoint identity from this repository and the runtime user. Replacement Streamlit containers therefore keep the same SSH hostname without a configured seed.
+Offline mode covers the installed shell and media downloaded in advance. New catalog requests, source searches, and torrent starts still require a network. Mobile operating systems may pause downloads when the browser is backgrounded and may reclaim storage under pressure.
 
 ## Local development
 
-Requires Python 3.14, `uv`, Bun 1.4, and Node 22.
+Requires Python 3.14, `uv`, Bun 1.4, Node 22, and a Cloudflare token that can use Browser Rendering.
 
 ```sh
 uv sync
 bun install --frozen-lockfile
+npm --prefix cloudflare ci
 bun run dev
 ```
 
-`bun run dev` starts the complete local stack: rqbit on port 3030, the Hawk API on port 9000, and Vite on port 5173. Vite hot-reloads the frontend, and tsx restarts the API when its TypeScript changes. rqbit and the Python supervisor keep running; changes to their configuration require restarting `bun run dev`. Ctrl-C stops all three services. To run only Vite against an API already listening on port 9000:
+`bun run dev` starts rqbit on port 3030, Node on 9000, local Wrangler on 8787, and Vite on 5173. Vite sends catalog requests to Wrangler and streaming requests to Node. Browser Rendering stays remote through its Wrangler binding.
+
+Focused commands:
 
 ```sh
 bun run dev:frontend
+bun run dev:edge
+bun run typecheck
+bun test
+bun run build
+bun run edge:check
 ```
 
-Hawk runs rqbit with its single-thread Tokio scheduler, TCP peers, and a 128-peer ceiling.
-On Streamlit Community Cloud, the same 2.88 GB torrent
-streamed at about 86 MB/s while rqbit used about 64% of one CPU and 27 MB RSS. The launcher
-downloads the official rqbit binary and verifies its release checksum before execution.
+Provider endpoints can be replaced without code changes through `TORRENTIO_URL`, `APIBAY_URL`, and `OPENSUBTITLES_URL`. rqbit uses `RQBIT_URL`. Torrent capacity and idle cleanup use `HAWK_TORRENT_POOL_MAX` and `HAWK_TORRENT_POOL_TTL_MINUTES`.
 
-## Streamlit Cloud operations
+## Cloudflare configuration
 
-Copy `.streamlit-cloud.example.json` to `.streamlit-cloud.json` and fill it with the authenticated values from a browser request. The local config is ignored by Git.
+`cloudflare/wrangler.jsonc` owns the public hostname, Browser Rendering binding, WAF token Durable Object, rate limiter, cache policy, and upstream routing. `UPSTREAM_ORIGINS` accepts a comma-separated list. Stateless requests retry healthy candidates; torrent requests use deterministic info-hash affinity so every range request reaches the origin holding that torrent.
+
+TMDB is optional and only fills metadata gaps:
 
 ```sh
-bun run cloud status
-bun run cloud context
-bun run cloud logs 30
-bun run cloud reboot 240
-bun run cloud secrets
-bun run cloud secrets-set .streamlit/secrets.toml
+wrangler-alt secret put TMDB_API_KEY --config cloudflare/wrangler.jsonc
 ```
 
-A push to `main` is the normal deployment path. Hawk's running supervisor detects the new Git revision, rebuilds the frontend, and replaces the Node/rqbit runtime. No Cloud command is needed.
+The Worker keeps catalog objects public-cacheable. Personal state, playback status, stream responses, and offline files are never shared-cached. Hashed build assets are immutable; HTML, the manifest, and the service worker always revalidate.
 
-`reboot` is an explicit Streamlit process reboot, not a deployment command. Use it only when `streamlit_app.py` or its Python dependencies changed, because the already-running Python interpreter cannot load new launcher code from a Git pull. It waits for Streamlit to report RUNNING and then verifies `/healthz`. Bun only runs this local helper; it is not the deployment mechanism. Mutating commands require a current CSRF token and session cookie.
+## Deployment
+
+Deploy the Worker first so catalog routes exist, then push the app to `main` to trigger Streamlit's rebuild. The previous standalone IMDb Worker should remain untouched as rollback until the combined Hawk Worker is verified.
+
+Streamlit operational commands remain available through `bun run cloud`. Mutating commands and all Worker deployments require explicit approval.

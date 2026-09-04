@@ -1,7 +1,7 @@
 [project]
 name = "hawk-streamlit"
 version = "0.1.0"
-description = "A minimal mood-first torrent streamer for Streamlit Cloud."
+description = "An IMDb-first installable streaming app for Streamlit Cloud."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

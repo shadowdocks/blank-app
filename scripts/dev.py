@@ -27,7 +27,7 @@ from streamlit_app import (  # noqa: E402
 
 
 def log_line(service: str, label: str, message: str) -> None:
-    colors = {"api": 94, "rqbit": 95, "web": 36}
+    colors = {"api": 94, "edge": 33, "rqbit": 95, "web": 36}
     enabled = sys.stdout.isatty() and "NO_COLOR" not in os.environ
 
     def paint(code: int, value: str) -> str:
@@ -83,6 +83,7 @@ def main() -> int:
     env["PATH"] = f"{node.parent}:{bun.parent}:{env.get('PATH', '')}"
     rqbit_process: subprocess.Popen[bytes] | None = None
     backend: subprocess.Popen[bytes] | None = None
+    edge: subprocess.Popen[bytes] | None = None
     vite: subprocess.Popen[bytes] | None = None
     try:
         rqbit_process = subprocess.Popen(
@@ -125,6 +126,27 @@ def main() -> int:
             30,
         )
         log_line("api", "ready", f"node={NODE_VERSION} url=http://127.0.0.1:{HAWK_PORT}")
+        edge = subprocess.Popen(
+            [
+                node,
+                ROOT / "cloudflare" / "node_modules" / "wrangler" / "bin" / "wrangler.js",
+                "dev",
+                "--ip",
+                "127.0.0.1",
+                "--port",
+                "8787",
+            ],
+            cwd=ROOT / "cloudflare",
+            env=env,
+            start_new_session=True,
+        )
+        wait_for_json(
+            "http://127.0.0.1:8787/api/catalog/search?q=matrix",
+            edge,
+            {},
+            30,
+        )
+        log_line("edge", "ready", "url=http://127.0.0.1:8787 catalog=/api/catalog")
         vite = subprocess.Popen(
             [bun, "run", "vite", *sys.argv[1:]],
             cwd=ROOT,
@@ -135,7 +157,7 @@ def main() -> int:
     except KeyboardInterrupt:
         return 130
     finally:
-        for process in (vite, backend, rqbit_process):
+        for process in (vite, edge, backend, rqbit_process):
             if process is not None:
                 stop_process(process)
         shutil.rmtree(downloads, ignore_errors=True)

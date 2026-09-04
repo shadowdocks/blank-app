@@ -1,19 +1,37 @@
 import { mountPath } from "@/lib/router"
-import type { MediaType, Source, SubtitleTrack, TimeBucket, Title, TorrentStatus } from "@/lib/types"
+import type {
+  CatalogHome,
+  CatalogPage,
+  EpisodePage,
+  MediaDetails,
+  MediaSummary,
+  MediaType,
+} from "../../shared/media"
+import type {
+  MediaTarget,
+  PlaybackSource,
+  PlaybackStatus,
+  SubtitleTrack,
+} from "../../shared/playback"
 
 /**
- * Every path here is mount-relative on purpose. Streamlit serves this app from
- * a nested mount, so a root-absolute "/api/..." would escape it and 404. The
- * paths are joined onto the mount rather than left relative to the document,
- * because a deep route like /app/movie/603 would otherwise resolve them wrong.
+ * Normalized API Client for Hawk.
+ *
+ * All paths are resolved relative to the current mount (root, arbitrary mount,
+ * or Streamlit /~/+/). GET requests are safely deduplicated in-flight.
  */
+
 export class ApiError extends Error {
   readonly status: number
+  readonly code?: string
+  readonly details?: unknown
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, details?: unknown, code?: string) {
     super(message)
     this.name = "ApiError"
     this.status = status
+    this.details = details
+    this.code = code
   }
 }
 
@@ -23,13 +41,55 @@ export function errorMessage(error: unknown): string {
 }
 
 export function isAbort(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError"
+  if (error instanceof DOMException && error.name === "AbortError") return true
+  if (error instanceof Error && error.name === "AbortError") return true
+  return false
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export function abortError(): DOMException {
+  return new DOMException("The operation was aborted.", "AbortError")
+}
+
+function raceWithSignal<T>(promise: Promise<T>, signal?: AbortSignal | null): Promise<T> {
+  if (!signal) return promise
+  if (signal.aborted) {
+    return Promise.reject(signal.reason ?? abortError())
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort)
+      reject(signal.reason ?? abortError())
+    }
+    signal.addEventListener("abort", onAbort)
+    promise.then(
+      (val) => {
+        signal.removeEventListener("abort", onAbort)
+        resolve(val)
+      },
+      (err) => {
+        signal.removeEventListener("abort", onAbort)
+        reject(err)
+      }
+    )
+  })
+}
+
+const inFlightGets = new Map<string, Promise<unknown>>()
+
+export function clearInFlightRequests(): void {
+  inFlightGets.clear()
+}
+
+export const clearDeduplicationCache = clearInFlightRequests
+
+export function inFlightRequestCount(): number {
+  return inFlightGets.size
+}
+
+async function executeRequest<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(mountPath(path), init)
+    response = await fetch(url, init)
   } catch (error) {
     if (isAbort(error)) throw error
     throw new ApiError("Network unreachable. Check your connection and retry.", 0)
@@ -37,7 +97,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const raw = await response.text()
   let data: unknown = null
-  if (raw) {
+  if (raw && raw.trim().length > 0) {
     try {
       data = JSON.parse(raw) as unknown
     } catch {
@@ -46,102 +106,268 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    const detail =
-      data && typeof data === "object" && "error" in data && typeof data.error === "string"
-        ? data.error
-        : `Request failed (${response.status}).`
-    throw new ApiError(detail, response.status)
+    let detail = `Request failed (${response.status}).`
+    let code: string | undefined
+    let details: unknown
+
+    if (data && typeof data === "object") {
+      const obj = data as Record<string, unknown>
+      if (typeof obj.error === "string" && obj.error.trim()) {
+        detail = obj.error
+      } else if (typeof obj.message === "string" && obj.message.trim()) {
+        detail = obj.message
+      } else if (typeof obj.detail === "string" && obj.detail.trim()) {
+        detail = obj.detail
+      }
+      if (typeof obj.code === "string") code = obj.code
+      details = obj.details ?? data
+    } else if (raw && raw.length < 200 && !raw.includes("<html")) {
+      detail = raw.trim()
+    } else if (response.status === 404) {
+      detail = "The requested item was not found."
+    } else if (response.status >= 500) {
+      detail = "A server error occurred. Please try again later."
+    }
+
+    throw new ApiError(detail, response.status, details, code)
   }
 
-  if (data === null) throw new ApiError("Unexpected response from the server.", response.status)
+  if (response.status === 204 || !raw.trim()) {
+    return null as T
+  }
+
+  if (data === null) {
+    throw new ApiError("Unexpected non-JSON response from the server.", response.status)
+  }
+
   return data as T
 }
 
-/** The server reports whole seconds as `elapsed`; the UI works in milliseconds. */
-type RawStatus = Omit<TorrentStatus, "elapsedMs"> & { elapsedMs?: number; elapsed?: number }
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const url = mountPath(path)
+  const isGet = !init?.method || init.method.toUpperCase() === "GET"
 
-function toStatus(raw: RawStatus): TorrentStatus {
-  const elapsedMs = Number.isFinite(raw.elapsedMs)
-    ? Number(raw.elapsedMs)
-    : (Number(raw.elapsed) || 0) * 1000
-  return {
-    infoHash: String(raw.infoHash ?? ""),
-    name: raw.name || "Resolving metadata",
-    progress: Number(raw.progress) || 0,
-    downloaded: Number(raw.downloaded) || 0,
-    length: Number(raw.length) || 0,
-    numPeers: Number(raw.numPeers) || 0,
-    downloadSpeed: Number(raw.downloadSpeed) || 0,
-    done: Boolean(raw.done),
-    video: typeof raw.video === "number" ? raw.video : null,
-    metadata: Boolean(raw.metadata),
-    elapsedMs,
-    lastEvent: raw.lastEvent || "connecting",
-    subtitles: Array.isArray(raw.subtitles)
-      ? raw.subtitles.filter(
-          (track): track is SubtitleTrack =>
-            Boolean(track) &&
-            typeof track === "object" &&
-            typeof track.index === "number" &&
-            typeof track.name === "string",
-        )
-      : [],
+  if (isGet) {
+    if (init?.signal?.aborted) return Promise.reject(init.signal.reason ?? abortError())
+    let pending = inFlightGets.get(url) as Promise<T> | undefined
+    if (!pending) {
+      const { signal: _callerSignal, ...sharedInit } = init ?? {}
+      pending = executeRequest<T>(url, sharedInit).finally(() => {
+        inFlightGets.delete(url)
+      })
+      // Prevent unhandled promise rejection if callers abort or disconnect
+      pending.catch(() => {})
+      inFlightGets.set(url, pending as Promise<unknown>)
+    }
+    return raceWithSignal(pending, init?.signal)
   }
+
+  return executeRequest<T>(url, init)
 }
 
-function usable(results: unknown): Title[] {
-  return Array.isArray(results) ? (results as Title[]).filter((item) => item && item.title) : []
+/* -------------------------------------------------------------------------- */
+/* Normalized API Methods & Parameters                                        */
+/* -------------------------------------------------------------------------- */
+
+export interface CatalogSearchParams {
+  query: string
+  type?: MediaType
+  cursor?: string
+  limit?: number
 }
 
-export async function fetchRecommendations(
-  params: { mood: string; type: MediaType; time: TimeBucket },
-  signal?: AbortSignal,
-): Promise<Title[]> {
-  const query = new URLSearchParams({ mood: params.mood, type: params.type, time: params.time })
-  const data = await request<{ results?: Title[] }>(`api/recommend?${query}`, { signal })
-  return usable(data.results)
+export interface CatalogDiscoverParams {
+  genre?: string
+  type?: MediaType
+  sort?: string
+  cursor?: string
+  limit?: number
 }
 
-/** Hydrates a title from its route alone, so a shared link opens anywhere. */
-export async function fetchTitle(
-  type: MediaType,
-  id: string,
-  signal?: AbortSignal,
-): Promise<Title> {
-  const query = new URLSearchParams({ type, id })
-  const data = await request<{ result?: Title }>(`api/title?${query}`, { signal })
-  const result = data.result
-  if (!result || !result.title) throw new ApiError("That title could not be found.", 404)
-  return result
+export interface SourceOptions {
+  season?: number
+  episode?: number
 }
 
-export async function searchTitles(query: string, signal?: AbortSignal): Promise<Title[]> {
-  const params = new URLSearchParams({ q: query })
-  const data = await request<{ results?: Title[] }>(`api/search?${params}`, { signal })
-  return usable(data.results)
+export type PlaybackCreateInput = {
+  target?: MediaTarget | (Partial<MediaTarget> & { imdbId: string; mediaType: MediaType })
+  imdbId?: string
+  mediaType?: MediaType
+  title?: string
+  year?: number | null
+  season?: number | null
+  episode?: number | null
+  episodeTitle?: string | null
+  sourceId?: string
+  source?: PlaybackSource | { name?: string; magnet: string; quality?: string; seeds?: number; sizeBytes?: number }
+  magnet?: string
+  fileIndex?: number | null
 }
 
-export async function fetchSources(title: string, signal?: AbortSignal): Promise<Source[]> {
-  const query = new URLSearchParams({ title })
-  const data = await request<{ results?: Source[] }>(`api/sources?${query}`, { signal })
-  return Array.isArray(data.results) ? data.results.filter((item) => item && item.magnet) : []
+export async function fetchCatalogHome(signal?: AbortSignal): Promise<CatalogHome> {
+  return request<CatalogHome>("api/catalog/home", { signal })
 }
 
-export async function startTorrent(magnet: string, signal?: AbortSignal): Promise<TorrentStatus> {
-  const raw = await request<RawStatus>("api/torrents", {
+export async function searchCatalog(
+  params: CatalogSearchParams,
+  signal?: AbortSignal
+): Promise<CatalogPage<MediaSummary>> {
+  const query = new URLSearchParams()
+  query.set("q", params.query)
+  if (params.type) query.set("type", params.type)
+  if (params.cursor) query.set("cursor", params.cursor)
+  if (params.limit !== undefined) query.set("limit", String(params.limit))
+  return request<CatalogPage<MediaSummary>>(`api/catalog/search?${query}`, { signal })
+}
+
+export async function discoverCatalog(
+  params?: CatalogDiscoverParams,
+  signal?: AbortSignal
+): Promise<CatalogPage<MediaSummary>> {
+  const query = new URLSearchParams()
+  if (params?.genre) query.set("genre", params.genre)
+  if (params?.type) query.set("type", params.type)
+  if (params?.sort) query.set("sort", params.sort)
+  if (params?.cursor) query.set("cursor", params.cursor)
+  if (params?.limit !== undefined) query.set("limit", String(params.limit))
+  const qs = query.toString()
+  return request<CatalogPage<MediaSummary>>(`api/catalog/discover${qs ? `?${qs}` : ""}`, { signal })
+}
+
+export async function fetchCatalogTitle(
+  imdbId: string,
+  signal?: AbortSignal
+): Promise<MediaDetails> {
+  return request<MediaDetails>(`api/catalog/title/${encodeURIComponent(imdbId)}`, { signal })
+}
+
+export async function fetchCatalogEpisodes(
+  imdbId: string,
+  season: number,
+  signal?: AbortSignal
+): Promise<EpisodePage> {
+  return request<EpisodePage>(
+    `api/catalog/episodes/${encodeURIComponent(imdbId)}/${encodeURIComponent(String(season))}`,
+    { signal }
+  )
+}
+
+export function fetchPlaybackSources(target: MediaTarget, signal?: AbortSignal): Promise<PlaybackSource[]>
+export function fetchPlaybackSources(imdbId: string, options?: SourceOptions, signal?: AbortSignal): Promise<PlaybackSource[]>
+export async function fetchPlaybackSources(
+  targetOrId: MediaTarget | string,
+  optionsOrSignal?: SourceOptions | AbortSignal,
+  legacySignal?: AbortSignal
+): Promise<PlaybackSource[]> {
+  const target: MediaTarget = typeof targetOrId === "string"
+    ? {
+        imdbId: targetOrId,
+        mediaType: optionsOrSignal && "season" in optionsOrSignal ? "tv" : "movie",
+        title: targetOrId,
+        year: null,
+        season: optionsOrSignal && "season" in optionsOrSignal ? optionsOrSignal.season ?? null : null,
+        episode: optionsOrSignal && "episode" in optionsOrSignal ? optionsOrSignal.episode ?? null : null,
+        episodeTitle: null,
+      }
+    : targetOrId
+  const signal = typeof targetOrId === "string" ? legacySignal : optionsOrSignal as AbortSignal | undefined
+  const query = new URLSearchParams()
+  query.set("imdbId", target.imdbId)
+  query.set("mediaType", target.mediaType)
+  query.set("title", target.title)
+  if (target.year !== null) query.set("year", String(target.year))
+  if (target.season !== null) query.set("season", String(target.season))
+  if (target.episode !== null) query.set("episode", String(target.episode))
+  if (target.episodeTitle) query.set("episodeTitle", target.episodeTitle)
+  const data = await request<{ results: PlaybackSource[] } | PlaybackSource[]>(`api/sources?${query}`, { signal })
+  return Array.isArray(data) ? data : data.results
+}
+
+export async function createPlayback(
+  input: PlaybackCreateInput | MediaTarget,
+  signal?: AbortSignal
+): Promise<PlaybackStatus> {
+  let payload: PlaybackCreateInput | MediaTarget = input
+  const configuredSource = "source" in input ? input.source : undefined
+  const configuredMagnet = "magnet" in input ? input.magnet : undefined
+  if (!configuredSource && !configuredMagnet) {
+    const candidate = "target" in input && input.target ? input.target : input
+    if (
+      typeof candidate.imdbId === "string" && candidate.imdbId &&
+      (candidate.mediaType === "movie" || candidate.mediaType === "tv") &&
+      typeof candidate.title === "string" && candidate.title
+    ) {
+      const target: MediaTarget = {
+        imdbId: candidate.imdbId,
+        mediaType: candidate.mediaType,
+        title: candidate.title,
+        year: candidate.year ?? null,
+        season: candidate.season ?? null,
+        episode: candidate.episode ?? null,
+        episodeTitle: candidate.episodeTitle ?? null,
+      }
+      const [source] = await fetchPlaybackSources(target, signal)
+      if (!source) throw new ApiError("No playable sources found.", 404)
+      payload = { ...(input as PlaybackCreateInput), target, source }
+    }
+  }
+  return request<PlaybackStatus>("api/playback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ magnet }),
+    body: JSON.stringify(payload),
     signal,
   })
-  return toStatus(raw)
 }
 
-export async function fetchTorrent(infoHash: string, signal?: AbortSignal): Promise<TorrentStatus> {
-  const raw = await request<RawStatus>(`api/torrents/${encodeURIComponent(infoHash)}`, { signal })
-  return toStatus(raw)
+export async function fetchPlaybackStatus(
+  playbackId: string,
+  signal?: AbortSignal
+): Promise<PlaybackStatus> {
+  return request<PlaybackStatus>(`api/playback/${encodeURIComponent(playbackId)}`, { signal })
 }
 
-export function streamUrl(infoHash: string, video: number): string {
-  return mountPath(`api/stream/${encodeURIComponent(infoHash)}/${encodeURIComponent(String(video))}`)
+export async function deletePlayback(
+  playbackId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  await request<unknown>(`api/playback/${encodeURIComponent(playbackId)}`, {
+    method: "DELETE",
+    signal,
+  })
+}
+
+export async function fetchSubtitles(
+  playbackId: string,
+  signal?: AbortSignal
+): Promise<SubtitleTrack[]> {
+  return request<SubtitleTrack[]>(`api/playback/${encodeURIComponent(playbackId)}/subtitles`, {
+    signal,
+  })
+}
+
+export function streamUrl(playbackIdOrInfoHash: string, fileIndex?: number | null): string {
+  const segment = encodeURIComponent(playbackIdOrInfoHash)
+  if (fileIndex !== undefined && fileIndex !== null) {
+    return mountPath(`api/stream/${segment}/${encodeURIComponent(String(fileIndex))}`)
+  }
+  return mountPath(`api/stream/${segment}`)
+}
+
+export const apiClient = {
+  catalog: {
+    home: fetchCatalogHome,
+    search: searchCatalog,
+    discover: discoverCatalog,
+    title: fetchCatalogTitle,
+    episodes: fetchCatalogEpisodes,
+  },
+  sources: fetchPlaybackSources,
+  playback: {
+    create: createPlayback,
+    status: fetchPlaybackStatus,
+    delete: deletePlayback,
+    subtitles: fetchSubtitles,
+    streamUrl,
+  },
+  streamUrl,
 }
