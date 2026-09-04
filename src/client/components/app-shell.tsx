@@ -17,14 +17,14 @@ export function AppShell({
   return (
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b border-border">
-        <div className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between gap-3 px-4 sm:px-6">
+        <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between gap-3 px-4 sm:px-6">
           <AppLink
             route={{ name: "pick" }}
             aria-label="Hawk home"
-            className="flex shrink-0 items-center gap-2 rounded-md px-1 py-1 outline-none transition-colors hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="flex shrink-0 items-center gap-2 rounded-lg px-1 py-1 outline-none transition-colors hover:text-primary focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <Film className="size-4 text-primary" aria-hidden="true" />
-            <span className="text-base font-semibold tracking-tight">Hawk</span>
+            <span className="text-sm font-semibold tracking-tight">Hawk</span>
           </AppLink>
 
           <nav aria-label="Main">
