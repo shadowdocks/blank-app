@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import io
+import json
 import os
 from pathlib import Path
 import platform
@@ -10,6 +11,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import threading
 import time
 from urllib.request import urlopen
 import zipfile
@@ -108,39 +110,73 @@ def start_nookwire() -> None:
 def stop_existing_hawk() -> None:
     """Stop an orphaned backend left behind by a Streamlit hot reload."""
     proc = Path("/proc")
-    if not proc.is_dir():
-        return
-    for entry in proc.iterdir():
+    entries = list(proc.iterdir()) if proc.is_dir() else []
+    if not entries and HAWK_PID_FILE.exists():
+        try:
+            entries = [Path(f"/proc/{int(HAWK_PID_FILE.read_text().strip())}")]
+        except (FileNotFoundError, ValueError, OSError):
+            entries = []
+
+    killed_groups: set[int] = set()
+    for entry in entries:
         if not entry.name.isdigit():
             continue
-        try:
-            command = (entry / "cmdline").read_bytes().replace(b"\0", b" ")
-            cwd = (entry / "cwd").resolve()
-        except (FileNotFoundError, PermissionError, OSError):
-            continue
-        if cwd != ROOT or b"src/server.ts" not in command:
-            continue
         pid = int(entry.name)
+        if proc.is_dir():
+            try:
+                command = (entry / "cmdline").read_bytes().replace(b"\0", b" ")
+                cwd = (entry / "cwd").resolve()
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            if (
+                cwd != ROOT
+                or b"node" not in command
+                or b"tsx" not in command
+                or b"src/server.ts" not in command
+            ):
+                continue
+        try:
+            pgid = os.getpgid(pid)
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+        if pgid <= 1 or pgid == os.getpgrp() or pgid in killed_groups:
+            continue
+        killed_groups.add(pgid)
         print(f"event=hawk_stale_process pid={pid}", flush=True)
         try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-        except ProcessLookupError:
+            os.killpg(pgid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
             continue
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+                reaped, _ = os.waitpid(pid, os.WNOHANG)
+                if reaped:
+                    break
+            except ChildProcessError:
+                try:
+                    os.kill(pid, 0)
+                    if proc.is_dir() and (entry / "stat").read_text().split(") ", 1)[1].startswith("Z"):
+                        break
+                except (ProcessLookupError, PermissionError, FileNotFoundError, OSError):
+                    break
+            except (ProcessLookupError, PermissionError, OSError):
                 break
             time.sleep(0.1)
         else:
             try:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
-            except ProcessLookupError:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
                 pass
 
 
-def start_hawk() -> subprocess.Popen[bytes]:
+def repository_revision() -> str:
+    return subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=5
+    ).strip()
+
+
+def start_hawk(cancel: threading.Event | None = None) -> subprocess.Popen[bytes]:
     node = install_node()
     bun = install_bun()
     node_bin = node.parent
@@ -157,8 +193,16 @@ def start_hawk() -> subprocess.Popen[bytes]:
     print("event=hawk_frontend_build", flush=True)
     subprocess.run([bun, "run", "build"], cwd=ROOT, env=env, check=True, timeout=120)
 
+    if cancel is not None and cancel.is_set():
+        raise RuntimeError("Hawk reload cancelled")
     stop_existing_hawk()
-    env.update({"PORT": str(HAWK_PORT), "DL_DIR": "/tmp/hawk-downloads"})
+    env.update(
+        {
+            "PORT": str(HAWK_PORT),
+            "DL_DIR": "/tmp/hawk-downloads",
+            "HAWK_REVISION": repository_revision(),
+        }
+    )
     process = subprocess.Popen(
         [node, ROOT / "node_modules" / "tsx" / "dist" / "cli.mjs", "src/server.ts"],
         cwd=ROOT,
@@ -169,20 +213,61 @@ def start_hawk() -> subprocess.Popen[bytes]:
 
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
+        if cancel is not None and cancel.is_set():
+            try:
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            raise RuntimeError("Hawk reload cancelled")
         if process.poll() is not None:
             raise RuntimeError(f"Hawk exited during startup with code {process.returncode}")
         try:
             with urlopen(f"http://127.0.0.1:{HAWK_PORT}/health", timeout=1) as response:
-                if response.status == 200:
+                payload = json.loads(response.read().decode())
+                if response.status == 200 and payload.get("revision") == env["HAWK_REVISION"]:
                     print(f"event=hawk_ready port={HAWK_PORT}", flush=True)
                     return process
-        except OSError:
+        except (OSError, ValueError):
             time.sleep(0.25)
     try:
         os.killpg(os.getpgid(process.pid), signal.SIGTERM)
     except ProcessLookupError:
         pass
     raise TimeoutError("Hawk did not become healthy within 30 seconds")
+
+
+async def watch_deployment(application: Starlette) -> None:
+    """Rebuild Hawk when Streamlit pulls a new commit without restarting ASGI."""
+    revision = repository_revision()
+    replacement: asyncio.Task[subprocess.Popen[bytes]] | None = None
+    cancel = threading.Event()
+    try:
+        while True:
+            await asyncio.sleep(3)
+            try:
+                current = await asyncio.to_thread(repository_revision)
+            except Exception as error:
+                print(f"event=hawk_revision_error error={error!r}", flush=True)
+                continue
+            if current == revision:
+                continue
+
+            print(f"event=hawk_revision_changed from={revision} to={current}", flush=True)
+            replacement = asyncio.create_task(asyncio.to_thread(start_hawk, cancel))
+            try:
+                await replacement
+            except Exception as error:
+                print(f"event=hawk_reload_error revision={current} error={error!r}", flush=True)
+                replacement = None
+                continue
+            application.state.hawk_task = replacement
+            replacement = None
+            revision = current
+            print(f"event=hawk_reloaded revision={revision}", flush=True)
+    finally:
+        cancel.set()
+        if replacement is not None and not replacement.done():
+            replacement.cancel()
 
 
 @asynccontextmanager
@@ -193,10 +278,17 @@ async def lifespan(application: Starlette):
     application.state.client = httpx.AsyncClient(
         base_url=f"http://127.0.0.1:{HAWK_PORT}", timeout=None
     )
+    deployment_task = asyncio.create_task(watch_deployment(application))
     try:
         yield
     finally:
+        deployment_task.cancel()
+        try:
+            await deployment_task
+        except asyncio.CancelledError:
+            pass
         await application.state.client.aclose()
+        hawk_task = application.state.hawk_task
         hawk = None
         if hawk_task.done() and not hawk_task.cancelled():
             try:

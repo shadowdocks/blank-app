@@ -48,7 +48,9 @@ async function bodyOf(request: IncomingMessage): Promise<Buffer | undefined> {
 
 async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === "/health") return Response.json({ status: "ok" });
+    if (url.pathname === "/health") {
+      return Response.json({ status: "ok", revision: process.env.HAWK_REVISION ?? null });
+    }
     if (url.pathname === "/api/recommend" && request.method === "GET") return recommend(url);
     if (url.pathname === "/api/search" && request.method === "GET") return search(url);
     if (url.pathname === "/api/title" && request.method === "GET") return titleDetails(url);
