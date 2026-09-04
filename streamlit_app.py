@@ -81,8 +81,9 @@ def install_bun() -> Path:
 
 
 def start_nookwire() -> None:
+    nookwire = Path(sys.executable).with_name("nookwire")
     started = subprocess.run(
-        [sys.executable, "-m", "nookwire_ssh.cli", "start", str(ROOT), "--accept"],
+        [nookwire, "start", str(ROOT), "--accept", "--batch"],
         cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -91,15 +92,15 @@ def start_nookwire() -> None:
     )
     output = started.stdout.strip()
     if started.returncode == 0:
-        connected = subprocess.run(
-            [sys.executable, "-m", "nookwire_ssh.cli", "connect"],
+        status = subprocess.run(
+            [nookwire, "status", "--json"],
             cwd=ROOT,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             timeout=10,
         )
-        output = "\n\n".join(part for part in (output, connected.stdout.strip()) if part)
+        output = "\n\n".join(part for part in (output, status.stdout.strip()) if part)
     print(output, flush=True)
 
 

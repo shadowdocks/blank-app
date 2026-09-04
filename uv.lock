@@ -261,14 +261,14 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "httpx" },
-    { name = "nookwire-ssh" },
+    { name = "nookwire" },
     { name = "streamlit" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "nookwire-ssh", git = "https://github.com/lars-hagen/nookwire-ssh?rev=v2.3.1" },
+    { name = "nookwire", specifier = "==2.4.1" },
     { name = "streamlit", specifier = ">=1.61.1" },
 ]
 
@@ -412,13 +412,17 @@ wheels = [
 ]
 
 [[package]]
-name = "nookwire-ssh"
-version = "2.3.1"
-source = { git = "https://github.com/lars-hagen/nookwire-ssh?rev=v2.3.1#a72291e78ef0aa2b22d8598fa445ef369628dfeb" }
+name = "nookwire"
+version = "2.4.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asyncssh" },
     { name = "cryptography" },
     { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/56/b6/af0238847998822f9bf30d3179cb43f522176a28c2daeabcf27496d21918/nookwire-2.4.1.tar.gz", hash = "sha256:d9007bf45fd5e2986494c287ff8973c6e8ae11c5c94d22713284eb9d3ebba56e", size = 58846, upload-time = "2026-09-04T00:01:50.943Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/37/15/9434300cf74a08ada5af0760bbd3a5204968a55cbde214ded55e6882f7e8/nookwire-2.4.1-py3-none-any.whl", hash = "sha256:0fdad6b026324f003e721a5fd038b9ae005ddd82d11040ae9992a1a70ba64995", size = 45728, upload-time = "2026-09-04T00:01:49.903Z" },
 ]
 
 [[package]]

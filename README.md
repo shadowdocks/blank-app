@@ -13,7 +13,7 @@ Streamlit runs this repository as an ASGI application on port 8501. Its Python e
 - WebTorrent 3.0.21 with TCP, uTP, DHT, and tracker peer discovery
 - HTTP Range video streaming
 - Refresh-safe picker, recommendation, source, and playback state
-- Nookwire SSH startup with authentication disabled
+- Nookwire startup in noninteractive batch mode with authentication disabled
 
 There is no library, history, account system, Plex integration, subtitle manager, or persistent database.
 
@@ -26,6 +26,8 @@ TMDB_API_KEY = "your-key"
 ```
 
 Without it, Hawk uses the bundled recommendations. The app and SSH endpoint do not require authentication, so deploy it only with the visibility you intend.
+
+Nookwire derives a stable endpoint identity from this repository and the runtime user. Replacement Streamlit containers therefore keep the same SSH hostname without a configured seed.
 
 ## Local development
 
