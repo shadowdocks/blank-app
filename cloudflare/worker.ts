@@ -1,7 +1,6 @@
 import { handleCatalogRequest, TokenBroker } from "./catalog";
 import type { CatalogEnv } from "./catalog/env";
 import { proxyRequest, type ProxyEnv } from "./proxy";
-import { handleEdgeSources } from "./sources";
 
 export { TokenBroker };
 
@@ -24,14 +23,9 @@ export default {
   async fetch(request: Request, env: HawkEnv, ctx: ExecutionContext): Promise<Response> {
     const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
     const pathname = new URL(request.url).pathname.replace(/^\/~\/\+/, "");
-    let response: Response;
-    if (pathname.startsWith("/api/catalog/")) {
-      response = await handleCatalogRequest(request, env, ctx);
-    } else if (pathname === "/api/sources") {
-      response = await handleEdgeSources(request, ctx) ?? await proxyRequest(request, env, requestId);
-    } else {
-      response = await proxyRequest(request, env, requestId);
-    }
+    const response = pathname.startsWith("/api/catalog/")
+      ? await handleCatalogRequest(request, env, ctx)
+      : await proxyRequest(request, env, requestId);
     return hardened(response, requestId);
   },
 };
