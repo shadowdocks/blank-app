@@ -1,5 +1,5 @@
 import { logLine } from "../../access-log";
-import type { MediaTarget, PlaybackSource } from "./types";
+import type { AudioCodec, ClientCapabilities, MediaTarget, PlaybackSource } from "./types";
 import { fetchTorrentio } from "./torrentio";
 import { fetchApiBay } from "./apibay";
 import { rankSources } from "./ranking";
@@ -15,6 +15,7 @@ export interface FindSourcesOptions {
   torrentioTimeoutMs?: number;
   apibayTimeoutMs?: number;
   signal?: AbortSignal;
+  capabilities?: ClientCapabilities;
 }
 
 export async function findSources(
@@ -25,6 +26,7 @@ export async function findSources(
     torrentioTimeoutMs = 4000,
     apibayTimeoutMs = 3500,
     signal,
+    capabilities,
   } = options;
 
   // Run Torrentio (primary) and APiBay (fallback) concurrently with individual timeouts
@@ -70,7 +72,7 @@ export async function findSources(
   }
 
   const merged = Array.from(sourceMap.values());
-  const ranked = rankSources(merged, target);
+  const ranked = rankSources(merged, target, capabilities);
 
   logLine(
     "api",
@@ -78,6 +80,16 @@ export async function findSources(
   );
 
   return ranked;
+}
+
+function parseCodecsList(param: string | null): AudioCodec[] | undefined {
+  if (!param) return undefined;
+  const valid: AudioCodec[] = ["aac", "ac3", "eac3", "opus", "mp3", "unknown"];
+  const list = param
+    .split(",")
+    .map((c) => c.trim().toLowerCase())
+    .filter((c): c is AudioCodec => valid.includes(c as AudioCodec));
+  return list.length > 0 ? list : undefined;
 }
 
 export async function handleSourcesRequest(requestOrUrl: Request | URL): Promise<Response> {
@@ -106,8 +118,21 @@ export async function handleSourcesRequest(requestOrUrl: Request | URL): Promise
     episodeTitle: url.searchParams.get("episodeTitle") ?? null,
   };
 
+  const audioCodecsParam = url.searchParams.get("audioCodecs");
+  const supportedAudioCodecsParam = url.searchParams.get("supportedAudioCodecs");
+  const unsupportedAudioCodecsParam = url.searchParams.get("unsupportedAudioCodecs");
+
+  const capabilities: ClientCapabilities | undefined =
+    audioCodecsParam || supportedAudioCodecsParam || unsupportedAudioCodecsParam
+      ? {
+          audioCodecs: parseCodecsList(audioCodecsParam),
+          supportedAudioCodecs: parseCodecsList(supportedAudioCodecsParam),
+          unsupportedAudioCodecs: parseCodecsList(unsupportedAudioCodecsParam),
+        }
+      : undefined;
+
   try {
-    const results = await findSources(target, { signal });
+    const results = await findSources(target, { signal, capabilities });
     if (!results.length) {
       return Response.json({ error: "No streams found." }, { status: 404 });
     }

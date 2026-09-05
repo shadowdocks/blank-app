@@ -1,4 +1,5 @@
 import type { MediaType } from "../../shared/media";
+import type { VideoContainer } from "../../shared/playback";
 import type { SubtitleTrack } from "../../shared/playback";
 import type { RqbitFile } from "./types";
 
@@ -30,6 +31,13 @@ function preferredVideo<T extends { file: RqbitFile; index: number }>(candidates
 export function mime(filename: string): string {
   const ext = filename.split(".").pop()?.toLowerCase();
   return MIME_TYPES[ext ?? ""] ?? "application/octet-stream";
+}
+
+export function videoContainer(filename: string): VideoContainer {
+  const extension = filename.split(".").pop()?.toLowerCase();
+  if (extension === "mp4" || extension === "m4v") return "mp4";
+  if (extension === "webm" || extension === "mkv" || extension === "avi" || extension === "mov" || extension === "ts") return extension;
+  return "unknown";
 }
 
 export function normalizedRange(value: string | null, length: number): string | null {

@@ -1,6 +1,6 @@
 import type { ExecutionContext } from "./env";
 
-const CATALOG_CACHE_VERSION = "5";
+const CATALOG_CACHE_VERSION = "6";
 
 export interface CacheConfig {
   ttlSeconds: number;

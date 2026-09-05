@@ -1,15 +1,19 @@
 import { describe, expect, it } from "bun:test";
 import {
   checkBadRelease,
+  evaluateAudioCodecCompatibility,
+  parseAudioCodec,
   parseCodec,
   parseContainer,
   parseHdr,
   parseQuality,
+  parseSeasonEpisode,
   rankSources,
 } from "./ranking";
+import { buildApiBayQueries, buildApiBayQuery } from "./apibay";
 import { parseTorrentioStream } from "./torrentio";
 import { probeTorrentio } from "./health";
-import type { MediaTarget, PlaybackSource } from "./types";
+import type { ClientCapabilities, MediaTarget, PlaybackSource } from "./types";
 
 describe("Torrentio parsing", () => {
   it("parses movie stream with quality, codec, hdr, seeders, and size", () => {
@@ -321,5 +325,252 @@ describe("Health probe response shape and errors", () => {
 
     // Restore original fetch
     globalThis.fetch = originalFetch;
+  });
+});
+
+describe("Audio codec parsing", () => {
+  it("parses AAC variants accurately", () => {
+    expect(parseAudioCodec("Show.S01E01.1080p.AAC.x264")).toBe("aac");
+    expect(parseAudioCodec("Show.S01E01.1080p.AAC2.0.x264")).toBe("aac");
+    expect(parseAudioCodec("Show.S01E01.1080p.AAC5.1.x264")).toBe("aac");
+    expect(parseAudioCodec("Show.S01E01.1080p.AAC 2.0.x264")).toBe("aac");
+    expect(parseAudioCodec("Show.S01E01.1080p.AAC.2.0.x264")).toBe("aac");
+    expect(parseAudioCodec("Show.S01E01.1080p.HE-AAC.x264")).toBe("aac");
+    expect(parseAudioCodec("Show.S01E01.1080p.AAC-LC.x264")).toBe("aac");
+  });
+
+  it("parses AC3 variants accurately", () => {
+    expect(parseAudioCodec("Show.S01E01.1080p.AC3.x264")).toBe("ac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.AC-3.x264")).toBe("ac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.Ac3.5.1.H264")).toBe("ac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.AC35.1.H264")).toBe("ac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.Dolby.Digital.x264")).toBe("ac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DD5.1.x264")).toBe("ac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DD 5.1.x264")).toBe("ac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DD2.0.x264")).toBe("ac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DD.x264")).toBe("ac3");
+  });
+
+  it("parses EAC3 variants accurately", () => {
+    expect(parseAudioCodec("Show.S01E01.1080p.EAC3.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.E-AC-3.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.EC-3.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.EC3.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DD+.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DD+5.1.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DD+ 5.1.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DDPLUS.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DDP.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DDP5.1.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.DDP5 1.x264")).toBe("eac3");
+    expect(parseAudioCodec("Show.S01E01.1080p.Dolby.Digital.Plus.x264")).toBe("eac3");
+  });
+
+  it("parses Opus and MP3 accurately", () => {
+    expect(parseAudioCodec("Show.S01E01.1080p.Opus.x264")).toBe("opus");
+    expect(parseAudioCodec("Show.S01E01.1080p.OPUS2.0.x264")).toBe("opus");
+    expect(parseAudioCodec("Show.S01E01.1080p.MP3.x264")).toBe("mp3");
+    expect(parseAudioCodec("Show.S01E01.1080p.mp3.avi")).toBe("mp3");
+  });
+
+  it("does not misclassify video codecs or unrelated words as audio codecs", () => {
+    expect(parseAudioCodec("Movie.2024.1080p.AVC.x264")).toBe("unknown");
+    expect(parseAudioCodec("Movie.2024.1080p.HEVC.x265")).toBe("unknown");
+    expect(parseAudioCodec("Movie.2024.1080p.AV1")).toBe("unknown");
+    expect(parseAudioCodec("Movie.2024.1080p.XviD-AFG")).toBe("unknown");
+    expect(parseAudioCodec("Movie.2024.1080p.MPEG2")).toBe("unknown");
+    expect(parseAudioCodec("Movie.2024.1080p.x264-DDR")).toBe("unknown");
+    expect(parseAudioCodec("Movie.Sudden.Impact.1080p.x264")).toBe("unknown");
+    expect(parseAudioCodec("Movie.Teddy.Bear.1080p.x264")).toBe("unknown");
+    expect(parseAudioCodec("Movie.2024.1080p.H264.mp4")).toBe("unknown");
+  });
+});
+
+describe("Capability-aware audio ranking", () => {
+  const target: MediaTarget = {
+    title: "Lanterns",
+    mediaType: "tv",
+    imdbId: "tt26545992",
+    year: 2026,
+    season: 1,
+    episode: 1,
+    episodeTitle: "Pilot",
+  };
+
+  const aacSource: PlaybackSource = {
+    id: "src-aac",
+    provider: "torrentio",
+    name: "Lanterns.S01E01.1080p.WEB.H264.AAC2.0.mp4",
+    infoHash: "1111111111111111111111111111111111111111",
+    magnet: "magnet:?xt=urn:btih:1111111111111111111111111111111111111111",
+    fileIndex: null,
+    seeders: 15,
+    leechers: 2,
+    sizeBytes: 1.2 * 1e9,
+    quality: "1080p",
+    container: "mp4",
+    codec: "AVC",
+    hdr: null,
+    audioCodec: "aac",
+    score: 0,
+  };
+
+  const ac3Source: PlaybackSource = {
+    id: "src-ac3",
+    provider: "torrentio",
+    name: "Lanterns.S01E01.1080p.WEB.H264.AC3.5.1.mp4",
+    infoHash: "2222222222222222222222222222222222222222",
+    magnet: "magnet:?xt=urn:btih:2222222222222222222222222222222222222222",
+    fileIndex: null,
+    seeders: 500, // Many more seeders
+    leechers: 50,
+    sizeBytes: 1.2 * 1e9,
+    quality: "1080p",
+    container: "mp4",
+    codec: "AVC",
+    hdr: null,
+    audioCodec: "ac3",
+    score: 0,
+  };
+
+  const unknownAudioSource: PlaybackSource = {
+    id: "src-unknown",
+    provider: "torrentio",
+    name: "Lanterns.S01E01.1080p.WEB.H264.mp4",
+    infoHash: "3333333333333333333333333333333333333333",
+    magnet: "magnet:?xt=urn:btih:3333333333333333333333333333333333333333",
+    fileIndex: null,
+    seeders: 15,
+    leechers: 2,
+    sizeBytes: 1.2 * 1e9,
+    quality: "1080p",
+    container: "mp4",
+    codec: "AVC",
+    hdr: null,
+    audioCodec: "unknown",
+    score: 0,
+  };
+
+  it("prioritizes supported AAC over explicitly unsupported AC3 despite higher seed count", () => {
+    const capabilities: ClientCapabilities = {
+      supportedAudioCodecs: ["aac", "opus", "mp3"],
+      unsupportedAudioCodecs: ["ac3", "eac3"],
+    };
+
+    const ranked = rankSources([ac3Source, aacSource], target, capabilities);
+    expect(ranked[0].id).toBe("src-aac");
+    expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
+    expect(ranked[0].audioCodec).toBe("aac");
+    expect(ranked[1].audioCodec).toBe("ac3");
+  });
+
+  it("retains unknown audio at intermediate priority between supported and unsupported", () => {
+    const capabilities: ClientCapabilities = {
+      supportedAudioCodecs: ["aac"],
+      unsupportedAudioCodecs: ["ac3"],
+    };
+
+    const ranked = rankSources([ac3Source, unknownAudioSource, aacSource], target, capabilities);
+    expect(ranked[0].id).toBe("src-aac");
+    expect(ranked[1].id).toBe("src-unknown");
+    expect(ranked[2].id).toBe("src-ac3");
+    expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
+    expect(ranked[1].score).toBeGreaterThan(ranked[2].score);
+  });
+
+  it("does not allow a CAM release with supported audio to beat a healthy release with unsupported audio", () => {
+    const camWithAac: PlaybackSource = {
+      id: "cam-aac",
+      provider: "apibay",
+      name: "Lanterns.S01E01.CAM.AAC.mp4",
+      infoHash: "4444444444444444444444444444444444444444",
+      magnet: "magnet:?",
+      fileIndex: null,
+      seeders: 200,
+      leechers: 10,
+      sizeBytes: 0.8 * 1e9,
+      quality: "480p",
+      container: "mp4",
+      codec: "AVC",
+      hdr: null,
+      audioCodec: "aac",
+      score: 0,
+    };
+
+    const capabilities: ClientCapabilities = {
+      supportedAudioCodecs: ["aac"],
+      unsupportedAudioCodecs: ["ac3"],
+    };
+
+    const ranked = rankSources([camWithAac, ac3Source], target, capabilities);
+    expect(ranked[0].id).toBe("src-ac3");
+    expect(ranked[0].score).toBeGreaterThan(ranked[1].score);
+  });
+
+  it("remains backward compatible when no capabilities are provided", () => {
+    const rankedNoCaps = rankSources([aacSource, ac3Source], target);
+    // Without audio capability input, higher seeders win on identical specs
+    expect(rankedNoCaps[0].id).toBe("src-ac3");
+    expect(rankedNoCaps[0].audioCodec).toBe("ac3");
+    expect(rankedNoCaps[1].audioCodec).toBe("aac");
+  });
+});
+
+describe("Season and episode parsing variants", () => {
+  it("extracts season and episode from various naming conventions", () => {
+    expect(parseSeasonEpisode("Show.S01E02.1080p")).toEqual({ season: 1, episode: 2 });
+    expect(parseSeasonEpisode("Show.s01e02.1080p")).toEqual({ season: 1, episode: 2 });
+    expect(parseSeasonEpisode("Show.S01.E02.1080p")).toEqual({ season: 1, episode: 2 });
+    expect(parseSeasonEpisode("Show S01 E02 1080p")).toEqual({ season: 1, episode: 2 });
+    expect(parseSeasonEpisode("Show.1x02.1080p")).toEqual({ season: 1, episode: 2 });
+    expect(parseSeasonEpisode("Show.01x02.1080p")).toEqual({ season: 1, episode: 2 });
+    expect(parseSeasonEpisode("Show Season 1 Episode 2")).toEqual({ season: 1, episode: 2 });
+    expect(parseSeasonEpisode("Show.S01.EP02.1080p")).toEqual({ season: 1, episode: 2 });
+    expect(parseSeasonEpisode("Show.S01.1080p")).toEqual({ season: 1, episode: undefined });
+    expect(parseSeasonEpisode("Show.Episode.2.1080p")).toEqual({ season: undefined, episode: 2 });
+  });
+});
+
+describe("APiBay query construction", () => {
+  it("strips parenthetical year from TV show title to avoid over-constraining", () => {
+    const target: MediaTarget = {
+      title: "Lanterns (2026)",
+      mediaType: "tv",
+      imdbId: "tt26545992",
+      year: 2026,
+      season: 1,
+      episode: 1,
+      episodeTitle: "Pilot",
+    };
+    expect(buildApiBayQuery(target)).toBe("Lanterns S01E01");
+    expect(buildApiBayQueries(target)).toEqual(["Lanterns S01E01", "Lanterns 1x01"]);
+  });
+
+  it("handles season-only TV target without defaulting to episode 1", () => {
+    const target: MediaTarget = {
+      title: "Lanterns",
+      mediaType: "tv",
+      imdbId: "tt26545992",
+      year: 2026,
+      season: 1,
+      episode: null,
+      episodeTitle: null,
+    };
+    expect(buildApiBayQuery(target)).toBe("Lanterns S01");
+    expect(buildApiBayQueries(target)).toEqual(["Lanterns S01"]);
+  });
+
+  it("constructs movie query with year", () => {
+    const target: MediaTarget = {
+      title: "Dune",
+      mediaType: "movie",
+      imdbId: "tt1160419",
+      year: 2021,
+      season: null,
+      episode: null,
+      episodeTitle: null,
+    };
+    expect(buildApiBayQuery(target)).toBe("Dune 2021");
+    expect(buildApiBayQueries(target)).toEqual(["Dune 2021"]);
   });
 });

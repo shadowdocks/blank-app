@@ -141,38 +141,95 @@ async function handleHomeRoute(
       // Fallback if IMDb responses were empty or failed
       const fallbackSections = getCuratedFallbackSections();
       const hero = fallbackSections[0]?.items[0] ?? null;
+      const fallbackHeroes = fallbackSections[0]?.items ?? (hero ? [hero] : []);
       return {
         hero,
+        heroes: fallbackHeroes,
         sections: fallbackSections,
         generatedAt: new Date().toISOString(),
       };
     }
 
     const heroSummary = sections[0]?.items[0] ?? null;
-    let hero = heroSummary;
+
+    // Select 5 to 6 strong candidates from movie and TV discovery, deduped by IMDb ID.
+    // Ensure current hero is candidate 0.
+    const candidatePool: MediaSummary[] = [];
+    const seenIds = new Set<string>();
+
     if (heroSummary) {
-      try {
-        const heroData = await imdbGraphql<{ title?: TitleNode | null }>(
-          env,
-          requestId,
-          HERO_ART_QUERY,
-          { id: heroSummary.imdbId }
-        );
-        const backdropUrl = heroData.title ? normalizeBackdrop(heroData.title) : null;
-        if (backdropUrl) hero = { ...heroSummary, backdropUrl };
-      } catch {
-        // The poster remains a usable fallback when optional hero art fails.
+      const heroId = heroSummary.imdbId || heroSummary.id;
+      if (heroId) seenIds.add(heroId);
+      candidatePool.push(heroSummary);
+    }
+
+    const maxCandidates = 6;
+    const maxLen = Math.max(movieItems.length, tvItems.length);
+    for (let i = 0; i < maxLen && candidatePool.length < maxCandidates; i++) {
+      // Alternate between TV and movie discovery items to give a balanced pool
+      const candidatesToTry =
+        heroSummary?.mediaType === "tv"
+          ? [movieItems[i], tvItems[i]]
+          : [tvItems[i], movieItems[i]];
+      for (const item of candidatesToTry) {
+        if (!item) continue;
+        const id = item.imdbId || item.id;
+        if (!id || seenIds.has(id)) continue;
+        seenIds.add(id);
+        candidatePool.push(item);
+        if (candidatePool.length >= maxCandidates) break;
       }
     }
+
+    // Fetch focused landscape artwork server-side in parallel, bounding work and tolerating individual failures
+    const enrichedCandidates = await Promise.all(
+      candidatePool.map(async (candidate) => {
+        if (!candidate.imdbId) return candidate;
+        try {
+          const heroData = await imdbGraphql<{ title?: TitleNode | null }>(
+            env,
+            requestId,
+            HERO_ART_QUERY,
+            { id: candidate.imdbId }
+          );
+          const backdropUrl = heroData.title ? normalizeBackdrop(heroData.title) : null;
+          if (backdropUrl) {
+            return { ...candidate, backdropUrl };
+          }
+        } catch {
+          // The poster remains a usable fallback when optional hero art fails.
+        }
+        return candidate;
+      })
+    );
+
+    const hero = enrichedCandidates[0] ?? heroSummary;
+
+    // Filter useful candidates: prefer landscape artwork; retain candidates with poster
+    // fallback so the endpoint always returns several candidates.
+    let usefulCandidates = enrichedCandidates.filter(
+      (c, idx) => idx === 0 || Boolean(c.backdropUrl)
+    );
+    if (usefulCandidates.length < 4) {
+      usefulCandidates = enrichedCandidates.filter((c) => Boolean(c.backdropUrl || c.posterUrl));
+    }
+    if (usefulCandidates.length === 0 && hero) {
+      usefulCandidates = [hero];
+    }
+
     return {
       hero,
+      heroes: usefulCandidates,
       sections,
       generatedAt: new Date().toISOString(),
     };
   } catch {
     const fallbackSections = getCuratedFallbackSections();
+    const hero = fallbackSections[0]?.items[0] ?? null;
+    const fallbackHeroes = fallbackSections[0]?.items ?? (hero ? [hero] : []);
     return {
-      hero: fallbackSections[0]?.items[0] ?? null,
+      hero,
+      heroes: fallbackHeroes,
       sections: fallbackSections,
       generatedAt: new Date().toISOString(),
     };

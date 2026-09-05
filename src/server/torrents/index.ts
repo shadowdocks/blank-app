@@ -11,6 +11,7 @@ import {
   parseByteRange,
   selectPlayableFile,
   selectSidecarSubtitles,
+  videoContainer,
   VIDEO_PATTERN,
 } from "./selection";
 import type { RqbitDetails, TorrentDiagnosticData } from "./types";
@@ -61,6 +62,7 @@ export async function getDetailedStatus(
       effectiveTarget?.season,
       effectiveTarget?.episode,
     );
+  const selectedFile = playableVideo === null ? null : files[playableVideo];
 
   const subtitles = normalizeTracks(
     selectSidecarSubtitles(files, info.info_hash),
@@ -82,6 +84,7 @@ export async function getDetailedStatus(
     id: info.info_hash,
     infoHash: info.info_hash,
     name: info.name ?? "Resolving metadata…",
+    container: selectedFile ? videoContainer(selectedFile.name) : "unknown",
     fileIndex: playableVideo,
     streamUrl: playableVideo === null ? null : `/api/stream/${info.info_hash}/${playableVideo}`,
     progress: length > 0 ? downloaded / length : 0,

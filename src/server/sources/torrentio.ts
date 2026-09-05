@@ -1,5 +1,5 @@
 import { createMagnetUri, type MediaTarget, type PlaybackSource } from "./types";
-import { parseCodec, parseContainer, parseHdr, parseQuality } from "./ranking";
+import { parseAudioCodec, parseCodec, parseContainer, parseHdr, parseQuality } from "./ranking";
 
 export interface TorrentioStream {
   name?: string;
@@ -73,6 +73,7 @@ export function parseTorrentioStream(stream: TorrentioStream): PlaybackSource | 
   const container = parseContainer(releaseName);
   const codec = parseCodec(combinedContext);
   const hdr = parseHdr(combinedContext);
+  const audioCodec = parseAudioCodec(combinedContext);
   const infoHash = stream.infoHash.toUpperCase();
   const fileIndex = typeof stream.fileIdx === "number" ? stream.fileIdx : null;
 
@@ -90,6 +91,7 @@ export function parseTorrentioStream(stream: TorrentioStream): PlaybackSource | 
     container,
     codec,
     hdr,
+    audioCodec,
     score: 0,
   };
 }

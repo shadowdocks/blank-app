@@ -97,6 +97,10 @@ export const EPISODES_QUERY = `query Episodes($id: ID!, $first: Int!, $after: ID
             releaseDate { day month year }
             ratingsSummary { aggregateRating voteCount }
             series { episodeNumber { seasonNumber episodeNumber } }
+            primaryImage { url width height }
+            images(first: 5) {
+              edges { node { url width height type } }
+            }
           }
         }
       }

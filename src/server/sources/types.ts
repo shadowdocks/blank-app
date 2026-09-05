@@ -1,7 +1,22 @@
 import type { MediaType } from "../../shared/media";
-import type { MediaTarget, PlaybackSource, VideoContainer, VideoQuality } from "../../shared/playback";
+import type {
+  AudioCodec,
+  ClientCapabilities,
+  MediaTarget,
+  PlaybackSource,
+  VideoContainer,
+  VideoQuality,
+} from "../../shared/playback";
 
-export type { MediaType, MediaTarget, PlaybackSource, VideoContainer, VideoQuality };
+export type {
+  AudioCodec,
+  ClientCapabilities,
+  MediaType,
+  MediaTarget,
+  PlaybackSource,
+  VideoContainer,
+  VideoQuality,
+};
 
 export type ProviderHealthStatus = "ok" | "timeout" | "http_error" | "invalid_shape";
 

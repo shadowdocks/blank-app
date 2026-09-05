@@ -1,5 +1,5 @@
 import { createMagnetUri, type MediaTarget, type PlaybackSource } from "./types";
-import { parseCodec, parseContainer, parseHdr, parseQuality } from "./ranking";
+import { parseAudioCodec, parseCodec, parseContainer, parseHdr, parseQuality } from "./ranking";
 
 export interface ApiBayRow {
   id: string;
@@ -13,16 +13,52 @@ export interface ApiBayRow {
 }
 
 export function buildApiBayQuery(target: MediaTarget): string {
-  const cleanTitle = target.title.replace(/[^\w\s.-]/g, " ").replace(/\s+/g, " ").trim();
+  const titleWithoutYear = target.title
+    .replace(/\s*\(\s*\d{4}\s*\)\s*$/, "")
+    .replace(/\s+\d{4}$/, "");
+  const cleanTitle = titleWithoutYear.replace(/[^\w\s.-]/g, " ").replace(/\s+/g, " ").trim();
+
   if (target.mediaType === "tv") {
     const s = String(target.season ?? 1).padStart(2, "0");
-    const e = String(target.episode ?? 1).padStart(2, "0");
-    return `${cleanTitle} S${s}E${e}`;
+    if (target.episode !== null && target.episode !== undefined) {
+      const e = String(target.episode).padStart(2, "0");
+      return `${cleanTitle} S${s}E${e}`;
+    }
+    return `${cleanTitle} S${s}`;
   }
+
   if (target.year) {
     return `${cleanTitle} ${target.year}`;
   }
+
   return cleanTitle;
+}
+
+export function buildApiBayQueries(target: MediaTarget): string[] {
+  const queries: string[] = [];
+  const primary = buildApiBayQuery(target);
+  if (primary) {
+    queries.push(primary);
+  }
+
+  if (
+    target.mediaType === "tv" &&
+    target.season !== null &&
+    target.season !== undefined &&
+    target.episode !== null &&
+    target.episode !== undefined
+  ) {
+    const titleWithoutYear = target.title
+      .replace(/\s*\(\s*\d{4}\s*\)\s*$/, "")
+      .replace(/\s+\d{4}$/, "");
+    const cleanTitle = titleWithoutYear.replace(/[^\w\s.-]/g, " ").replace(/\s+/g, " ").trim();
+    const alt = `${cleanTitle} ${target.season}x${String(target.episode).padStart(2, "0")}`;
+    if (alt && !queries.includes(alt)) {
+      queries.push(alt);
+    }
+  }
+
+  return queries;
 }
 
 export function parseApiBayRow(row: ApiBayRow): PlaybackSource | null {
@@ -41,6 +77,7 @@ export function parseApiBayRow(row: ApiBayRow): PlaybackSource | null {
   const container = parseContainer(name);
   const codec = parseCodec(name);
   const hdr = parseHdr(name);
+  const audioCodec = parseAudioCodec(name);
 
   return {
     id: `apibay-${infoHash}`,
@@ -56,18 +93,16 @@ export function parseApiBayRow(row: ApiBayRow): PlaybackSource | null {
     container,
     codec,
     hdr,
+    audioCodec,
     score: 0,
   };
 }
 
-export async function fetchApiBay(
-  target: MediaTarget,
-  timeoutMs = 10_000,
+async function queryApiBay(
+  query: string,
+  timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<PlaybackSource[]> {
-  const query = buildApiBayQuery(target);
-  if (!query) return [];
-
   const baseUrl = (process.env.APIBAY_URL ?? "https://apibay.org").replace(/\/+$/, "");
   const endpoint = `${baseUrl}/q.php?q=${encodeURIComponent(query)}&cat=200`;
 
@@ -108,4 +143,29 @@ export async function fetchApiBay(
     clearTimeout(timeoutId);
     signal?.removeEventListener("abort", onAbort);
   }
+}
+
+export async function fetchApiBay(
+  target: MediaTarget,
+  timeoutMs = 10_000,
+  signal?: AbortSignal,
+): Promise<PlaybackSource[]> {
+  const queries = buildApiBayQueries(target);
+  if (!queries.length) return [];
+
+  const primaryResults = await queryApiBay(queries[0], timeoutMs, signal);
+  if (primaryResults.length > 0 || queries.length === 1) {
+    return primaryResults;
+  }
+
+  const fallbackResults = await queryApiBay(queries[1], Math.min(timeoutMs, 5000), signal);
+  const seen = new Set<string>();
+  const combined: PlaybackSource[] = [];
+  for (const src of [...primaryResults, ...fallbackResults]) {
+    if (!seen.has(src.infoHash)) {
+      seen.add(src.infoHash);
+      combined.push(src);
+    }
+  }
+  return combined;
 }

@@ -97,13 +97,19 @@ async function createPlayback(request: Request): Promise<Response> {
   return startTorrent(magnet, request.signal, target, preferredFileIndex);
 }
 
-export async function handle(request: Request): Promise<Response> {
+export interface HandleContext {
+  sourceHealth?: () => Promise<Response>;
+}
+
+export async function handle(request: Request, context: HandleContext = {}): Promise<Response> {
   const url = new URL(request.url);
   const pathname = normalizePathname(url.pathname);
   if (pathname === "/health") {
     return Response.json({ status: "ok", revision: process.env.HAWK_REVISION ?? null });
   }
-  if (pathname === "/api/sources/health" && request.method === "GET") return handleSourcesHealthRequest();
+  if (pathname === "/api/sources/health" && request.method === "GET") {
+    return (context.sourceHealth ?? handleSourcesHealthRequest)();
+  }
   if (pathname === "/api/sources" && request.method === "GET") return handleSourcesRequest(request);
   if (pathname === "/api/subtitles/proxy" && request.method === "GET") return handleSubtitleProxyRequest(request);
   if (pathname === "/api/subtitles" && request.method === "GET") {

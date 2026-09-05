@@ -75,6 +75,7 @@ export interface MediaSection {
 
 export interface CatalogHome {
   hero: MediaSummary | null
+  heroes?: MediaSummary[]
   sections: MediaSection[]
   generatedAt: string
 }

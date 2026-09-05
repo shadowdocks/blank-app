@@ -161,6 +161,12 @@ export interface TitleNode {
               episodeNumber?: number | string | null;
             } | null;
           } | null;
+          primaryImage?: { url?: string | null; width?: number | null; height?: number | null; type?: string | null } | null;
+          images?: {
+            edges?: Array<{
+              node?: { url?: string | null; width?: number | null; height?: number | null; type?: string | null } | null;
+            }>;
+          } | null;
         } | null;
       }>;
     } | null;
@@ -175,6 +181,84 @@ export function normalizeBackdrop(node: Pick<TitleNode, "images">): string | nul
   const backdrop = (stills.length ? stills : untyped)
     .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0))[0];
   return imdbImage(backdrop?.url, 1280);
+}
+
+export interface EpisodeImageCandidate {
+  url?: string | null;
+  width?: number | null;
+  height?: number | null;
+  type?: string | null;
+}
+
+export function normalizeEpisodeThumbnail(node: {
+  primaryImage?: EpisodeImageCandidate | null;
+  images?: {
+    edges?: Array<{
+      node?: EpisodeImageCandidate | null;
+    }>;
+  } | null;
+}): string | null {
+  const images = (node.images?.edges ?? [])
+    .flatMap(({ node: img }) => (img?.url ? [img] : []));
+
+  const isPublicityOrEvent = (img: EpisodeImageCandidate) => {
+    const type = img.type?.toLowerCase();
+    return type === "publicity" || type === "event";
+  };
+
+  // 1. Prefer proper episode stills
+  const stills = images.filter((img) => img.type?.toLowerCase() === "still_frame");
+  if (stills.length > 0) {
+    const sortedStills = [...stills].sort((a, b) => {
+      const aLandscape = a.width && a.height ? a.width >= a.height : true;
+      const bLandscape = b.width && b.height ? b.width >= b.height : true;
+      if (aLandscape && !bLandscape) return -1;
+      if (!aLandscape && bLandscape) return 1;
+      return (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0);
+    });
+    return imdbImage(sortedStills[0].url, 500);
+  }
+
+  // Set of URLs known to be publicity or event photos
+  const publicityUrls = new Set(
+    images.filter(isPublicityOrEvent).map((img) => img.url)
+  );
+
+  // 2. Evaluate primaryImage if present
+  const primary = node.primaryImage;
+  if (primary?.url) {
+    // Never select publicity or event photos
+    if (!isPublicityOrEvent(primary) && !publicityUrls.has(primary.url)) {
+      const primaryType = primary.type?.toLowerCase();
+      const isPoster = primaryType === "poster";
+      const isPortraitPoster =
+        primary.width && primary.height ? primary.height > primary.width * 1.2 : false;
+
+      // Don't select posters as episode stills
+      if (!isPoster && !isPortraitPoster) {
+        return imdbImage(primary.url, 500);
+      }
+    }
+  }
+
+  // 3. Fall back to untyped images in images connection if landscape and not publicity/event
+  const untypedLandscape = images.filter(
+    (img) =>
+      !img.type &&
+      !publicityUrls.has(img.url) &&
+      img.width &&
+      img.height &&
+      img.width >= img.height
+  );
+  if (untypedLandscape.length > 0) {
+    const sorted = [...untypedLandscape].sort(
+      (a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0)
+    );
+    return imdbImage(sorted[0].url, 500);
+  }
+
+  // 4. No proper still exists - preserve null so UI can fallback to show artwork
+  return null;
 }
 
 export function normalizeMediaSummary(node: TitleNode): MediaSummary {
@@ -334,7 +418,7 @@ export function normalizeEpisodes(
         runtimeMinutes: null,
         rating: epNode.ratingsSummary?.aggregateRating ?? null,
         voteCount: epNode.ratingsSummary?.voteCount ?? null,
-        imageUrl: null,
+        imageUrl: normalizeEpisodeThumbnail(epNode),
       };
       return [ep];
     })

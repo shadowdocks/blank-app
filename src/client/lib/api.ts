@@ -18,6 +18,7 @@ import type {
   MediaType,
 } from "../../shared/media"
 import type {
+  ClientCapabilities,
   MediaTarget,
   PlaybackSource,
   PlaybackStatus,
@@ -270,12 +271,12 @@ export async function fetchCatalogEpisodes(
   )
 }
 
-export function fetchPlaybackSources(target: MediaTarget, signal?: AbortSignal): Promise<PlaybackSource[]>
+export function fetchPlaybackSources(target: MediaTarget, signal?: AbortSignal, capabilities?: ClientCapabilities): Promise<PlaybackSource[]>
 export function fetchPlaybackSources(imdbId: string, options?: SourceOptions, signal?: AbortSignal): Promise<PlaybackSource[]>
 export async function fetchPlaybackSources(
   targetOrId: MediaTarget | string,
   optionsOrSignal?: SourceOptions | AbortSignal,
-  legacySignal?: AbortSignal
+  signalOrCapabilities?: AbortSignal | ClientCapabilities
 ): Promise<PlaybackSource[]> {
   const target: MediaTarget = typeof targetOrId === "string"
     ? {
@@ -288,7 +289,8 @@ export async function fetchPlaybackSources(
         episodeTitle: null,
       }
     : targetOrId
-  const signal = typeof targetOrId === "string" ? legacySignal : optionsOrSignal as AbortSignal | undefined
+  const signal = typeof targetOrId === "string" ? signalOrCapabilities as AbortSignal | undefined : optionsOrSignal as AbortSignal | undefined
+  const capabilities = typeof targetOrId === "string" ? undefined : signalOrCapabilities as ClientCapabilities | undefined
   const query = new URLSearchParams()
   query.set("imdbId", target.imdbId)
   query.set("mediaType", target.mediaType)
@@ -297,6 +299,8 @@ export async function fetchPlaybackSources(
   if (target.season !== null) query.set("season", String(target.season))
   if (target.episode !== null) query.set("episode", String(target.episode))
   if (target.episodeTitle) query.set("episodeTitle", target.episodeTitle)
+  if (capabilities?.supportedAudioCodecs?.length) query.set("supportedAudioCodecs", capabilities.supportedAudioCodecs.join(","))
+  if (capabilities?.unsupportedAudioCodecs?.length) query.set("unsupportedAudioCodecs", capabilities.unsupportedAudioCodecs.join(","))
   const data = await request<{ results: PlaybackSource[] } | PlaybackSource[]>(`api/sources?${query}`, { signal })
   return Array.isArray(data) ? data : data.results
 }

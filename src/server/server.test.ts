@@ -43,7 +43,9 @@ describe("Server Mount Normalization", () => {
 
   it("dispatches /~/+/api/sources/health to API instead of static index.html", async () => {
     const req = new Request("http://127.0.0.1:9000/~/+/api/sources/health");
-    const res = await handle(req);
+    const res = await handle(req, {
+      sourceHealth: async () => Response.json({ status: "ok", providers: [] }),
+    });
     expect(res.headers.get("content-type")).toContain("application/json");
     const body = (await res.json()) as any;
     expect(body.providers).toBeDefined();

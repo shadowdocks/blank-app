@@ -3,6 +3,7 @@ import {
   determineMediaType,
   formatReleaseDate,
   imdbImage,
+  normalizeEpisodeThumbnail,
   normalizeEpisodes,
   normalizeMediaSummary,
   normalizeSuggestionItem,
@@ -254,5 +255,96 @@ describe("Catalog Normalization", () => {
 
     const s3Episodes = normalizeEpisodes(seriesNode, 3);
     expect(s3Episodes.results.length).toBe(0);
+  });
+
+  it("normalizeEpisodeThumbnail selects still_frame over publicity or poster", () => {
+    const epNode = {
+      primaryImage: {
+        url: "https://m.media-amazon.com/images/M/poster.jpg",
+        width: 1000,
+        height: 1500,
+        type: "poster",
+      },
+      images: {
+        edges: [
+          {
+            node: {
+              url: "https://m.media-amazon.com/images/M/event.jpg",
+              width: 1920,
+              height: 1080,
+              type: "event",
+            },
+          },
+          {
+            node: {
+              url: "https://m.media-amazon.com/images/M/publicity.jpg",
+              width: 1920,
+              height: 1080,
+              type: "publicity",
+            },
+          },
+          {
+            node: {
+              url: "https://m.media-amazon.com/images/M/MV5Bstill@._V1_.jpg",
+              width: 1920,
+              height: 1080,
+              type: "still_frame",
+            },
+          },
+        ],
+      },
+    };
+
+    const thumbnail = normalizeEpisodeThumbnail(epNode);
+    expect(thumbnail).toContain("https://m.media-amazon.com/images/M/MV5Bstill");
+    expect(thumbnail).toContain("UX500");
+  });
+
+  it("normalizeEpisodeThumbnail rejects publicity or event photos as primaryImage", () => {
+    const epNodeWithPublicity = {
+      primaryImage: {
+        url: "https://m.media-amazon.com/images/M/event_primary.jpg",
+        width: 1920,
+        height: 1080,
+        type: "event",
+      },
+      images: {
+        edges: [
+          {
+            node: {
+              url: "https://m.media-amazon.com/images/M/event_primary.jpg",
+              width: 1920,
+              height: 1080,
+              type: "event",
+            },
+          },
+        ],
+      },
+    };
+
+    expect(normalizeEpisodeThumbnail(epNodeWithPublicity)).toBeNull();
+  });
+
+  it("normalizeEpisodeThumbnail falls back to landscape untyped image or null", () => {
+    const epNodeUntyped = {
+      images: {
+        edges: [
+          {
+            node: {
+              url: "https://m.media-amazon.com/images/M/untyped.jpg",
+              width: 1280,
+              height: 720,
+              type: null,
+            },
+          },
+        ],
+      },
+    };
+
+    const thumbnail = normalizeEpisodeThumbnail(epNodeUntyped);
+    expect(thumbnail).toContain("https://m.media-amazon.com/images/M/untyped.jpg");
+
+    const epNodeEmpty = { images: { edges: [] } };
+    expect(normalizeEpisodeThumbnail(epNodeEmpty)).toBeNull();
   });
 });

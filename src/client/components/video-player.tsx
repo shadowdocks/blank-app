@@ -135,7 +135,19 @@ export function VideoPlayer({
       preload="metadata"
       controlsDelay={2600}
       hideControlsOnMouseLeave
-      onCanPlay={({ duration }) => onCanPlay(duration)}
+      onPointerMove={() => playerRef.current?.controls.show()}
+      onPointerEnter={() => playerRef.current?.controls.show()}
+      onAutoPlayFail={() => {
+        const player = playerRef.current
+        if (!player) return
+        player.muted = true
+        void player.play().catch(() => undefined)
+      }}
+      onCanPlay={({ duration }) => {
+        // Let Vidstack complete its autoplay pass before a resume seek can
+        // temporarily move the player back into a seeking state.
+        window.requestAnimationFrame(() => onCanPlay(duration))
+      }}
       onTimeUpdate={({ currentTime }) => onTimeUpdate(currentTime, playerRef.current?.duration ?? 0)}
       onPause={() => onPause(playerRef.current?.currentTime ?? 0, playerRef.current?.duration ?? 0)}
       onEnded={() => onEnded(playerRef.current?.duration ?? 0)}
@@ -156,6 +168,7 @@ export function VideoPlayer({
 
       <Captions className="vds-captions" />
       {notice ? <NoticeOverlay notice={notice} /> : <CenterState />}
+      <MutedPlaybackPrompt />
 
       <Controls.Root className="hawk-controls">
         <Controls.Group className="hawk-controls-top">
@@ -180,9 +193,6 @@ export function VideoPlayer({
               <TimeSlider.TrackFill className="hawk-time-fill" />
             </TimeSlider.Track>
             <TimeSlider.Thumb className="hawk-time-thumb" />
-            <TimeSlider.Preview className="hawk-time-preview">
-              <TimeSlider.Value />
-            </TimeSlider.Preview>
           </TimeSlider.Root>
 
           <div className="flex items-center gap-0.5 sm:gap-1">
@@ -224,9 +234,18 @@ export function PlayerPlaceholder({ title, subtitle, onBack, notice, loading, vi
             {subtitle ? <p className="truncate text-xs text-white/70">{subtitle}</p> : null}
           </div>
         </div>
+        <div className="hawk-controls-bottom">
+          <div className="hawk-time-slider opacity-45" aria-hidden="true">
+            <div className="hawk-time-track"><div className="hawk-time-fill w-0" /></div>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-white/65">
+            <span className="hawk-button opacity-45" aria-hidden="true"><Play /></span>
+            <span>{loading ?? "Preparing stream"}</span>
+          </div>
+        </div>
       </div>
       {notice ? <NoticeOverlay notice={notice} /> : (
-        <div className="absolute inset-0 z-11 grid place-items-center px-6 text-center" role="status">
+        <div className="pointer-events-none absolute inset-0 z-11 grid place-items-center px-6 text-center" role="status">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="size-8 animate-spin text-white/90" aria-hidden="true" />
             <p className="text-sm font-medium text-white/85">{loading ?? "Preparing the best available source"}</p>
@@ -269,6 +288,27 @@ function CenterState() {
     <PlayButton className="hawk-center-play" aria-label="Play">
       <Play aria-hidden="true" fill="currentColor" />
     </PlayButton>
+  )
+}
+
+function MutedPlaybackPrompt() {
+  const player = useMediaPlayer()
+  const muted = useMediaState("muted")
+  const paused = useMediaState("paused")
+  if (!muted || paused) return null
+  return (
+    <button
+      type="button"
+      className="hawk-sound-prompt"
+      onClick={() => {
+        if (!player) return
+        player.muted = false
+        if (player.volume === 0) player.volume = 1
+      }}
+    >
+      <Volume2 aria-hidden="true" />
+      Tap for sound
+    </button>
   )
 }
 
@@ -381,7 +421,11 @@ export function qualityLabel(quality: VideoQuality): string {
 }
 
 export function isBrowserCompatible(source: PlaybackSource): boolean {
-  return source.container === "mp4" || source.container === "webm"
+  return isContainerCompatible(source.container)
+}
+
+export function isContainerCompatible(container: PlaybackSource["container"]): boolean {
+  return container === "mp4" || container === "webm"
 }
 
 /** Full source list, portaled into the player so it survives native fullscreen. */
@@ -407,7 +451,7 @@ function SourceDialog({ open, onOpenChange, sources, activeId, onSelect }: { ope
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold">{source.name}</span>
-                    <span className="mt-1 block text-xs text-muted-foreground">{qualityLabel(source.quality)}{source.container !== "unknown" ? ` · ${source.container.toUpperCase()}` : ""} · {source.seeders} seeders · {formatBytes(source.sizeBytes ?? 0)}{isBrowserCompatible(source) ? "" : " · may not play in browser"}</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">{qualityLabel(source.quality)}{source.container !== "unknown" ? ` · ${source.container.toUpperCase()}` : ""}{source.audioCodec && source.audioCodec !== "unknown" ? ` · ${source.audioCodec.toUpperCase()}` : ""} · {source.seeders} seeders · {formatBytes(source.sizeBytes ?? 0)}{isBrowserCompatible(source) ? "" : " · container will be inspected"}</span>
                   </span>
                   {active ? <Check className="size-5" aria-hidden="true" /> : null}
                 </button>

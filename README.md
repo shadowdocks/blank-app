@@ -51,7 +51,7 @@ bun run build
 bun run edge:check
 ```
 
-Provider endpoints can be replaced without code changes through `TORRENTIO_URL`, `APIBAY_URL`, and `OPENSUBTITLES_URL`. rqbit uses `RQBIT_URL`. Torrent capacity and idle cleanup use `HAWK_TORRENT_POOL_MAX` and `HAWK_TORRENT_POOL_TTL_MINUTES`.
+Provider endpoints can be replaced without code changes through `TORRENTIO_URL`, `APIBAY_URL`, and `OPENSUBTITLES_URL`. rqbit uses `RQBIT_URL`; `RQBIT_ADD_TIMEOUT_MS` bounds metadata startup to 15 seconds by default. Torrent capacity and idle cleanup use `HAWK_TORRENT_POOL_MAX` and `HAWK_TORRENT_POOL_TTL_MINUTES`.
 
 ## Cloudflare configuration
 

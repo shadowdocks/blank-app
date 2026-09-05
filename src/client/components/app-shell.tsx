@@ -78,13 +78,13 @@ export function AppShell({
                 <span className="hidden sm:inline">{auth.user.username}</span>
               </AppLink>
             ) : auth.status === "loading" || !auth.isInitialized ? null : (
-              <AppLink route={{ name: "login" }} aria-current={accountActive ? "page" : undefined} className={linkClass(accountActive)}>Login</AppLink>
+              <AppLink route={{ name: "login" }} aria-current={accountActive ? "page" : undefined} className={`${linkClass(accountActive)} text-foreground/80`}>Login</AppLink>
             )}
           </div>
         </div>
       </header>
 
-      {!online ? <div role="status" className="fixed inset-x-0 top-16 z-40 bg-background px-4 py-2 text-center text-xs text-muted-foreground">You’re offline. Completed downloads remain available.</div> : null}
+      {!online ? <div role="status" className="offline-banner fixed inset-x-0 z-40 bg-background px-4 py-2 text-center text-xs text-muted-foreground">You’re offline. Completed downloads remain available.</div> : null}
       <main id="main" className="min-w-0 flex-1 pb-24 sm:pb-12">{children}</main>
 
       <nav aria-label="Mobile navigation" className="mobile-nav fixed inset-x-0 bottom-0 z-50 grid grid-cols-4 sm:hidden">

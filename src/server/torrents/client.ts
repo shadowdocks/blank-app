@@ -4,9 +4,12 @@ import type { RqbitDetails, RqbitStats } from "./types";
 
 export class RqbitClient {
   private baseUrl: string;
+  private addTimeoutMs: number;
 
-  constructor(baseUrl?: string) {
+  constructor(baseUrl?: string, addTimeoutMs?: number) {
     this.baseUrl = (baseUrl ?? process.env.RQBIT_URL ?? "http://127.0.0.1:3030").replace(/\/+$/, "");
+    const configuredTimeout = Number.parseInt(process.env.RQBIT_ADD_TIMEOUT_MS ?? "", 10);
+    this.addTimeoutMs = addTimeoutMs ?? (Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 15_000);
   }
 
   private async request(
@@ -15,17 +18,28 @@ export class RqbitClient {
     timeoutMs = 10_000,
   ): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
     const abort = () => controller.abort(init?.signal?.reason);
 
     if (init?.signal?.aborted) abort();
     else init?.signal?.addEventListener("abort", abort, { once: true });
 
     try {
-      return await fetch(`${this.baseUrl}${path}`, {
-        ...init,
-        signal: controller.signal,
-      });
+      try {
+        return await fetch(`${this.baseUrl}${path}`, {
+          ...init,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (timedOut) {
+          throw Object.assign(new Error(`rqbit request timed out after ${timeoutMs}ms`), { status: 504 });
+        }
+        throw error;
+      }
     } finally {
       // Timeout guards connection and response headers only
       clearTimeout(timer);
@@ -53,7 +67,7 @@ export class RqbitClient {
         body: magnet,
         signal,
       },
-      90_000,
+      this.addTimeoutMs,
     );
 
     if (!response.ok) {

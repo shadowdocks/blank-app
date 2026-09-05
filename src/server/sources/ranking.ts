@@ -1,9 +1,17 @@
-import type { MediaTarget, PlaybackSource, VideoContainer, VideoQuality } from "./types";
+import type {
+  AudioCodec,
+  ClientCapabilities,
+  MediaTarget,
+  PlaybackSource,
+  VideoContainer,
+  VideoQuality,
+} from "./types";
 
 export interface ParsedReleaseDetails {
   quality: VideoQuality;
   codec: string | null;
   hdr: string | null;
+  audioCodec: AudioCodec;
   isBadRelease: boolean;
   badReleaseReason?: string;
   season?: number;
@@ -36,6 +44,30 @@ export function parseCodec(text: string): string | null {
   return null;
 }
 
+export function parseAudioCodec(text: string): AudioCodec {
+  // 1. EAC3 / E-AC-3 / DD+ / DDP (check before AC3 / DD)
+  if (/(?:^|[^a-z0-9])dd(?:\+|plus)(?:[\s._-]?[1-7](?:[\s._-][0-2])?)?(?=[^a-z0-9]|$)/i.test(text)) return "eac3";
+  if (/\bdolby[\s._-]?digital[\s._-]?plus\b/i.test(text)) return "eac3";
+  if (/\b(eac-?3|e-ac-?3|ec-?3)(?:[\s._-]?[1-7](?:[\s._-][0-2])?)?(?=[^a-z0-9]|$)/i.test(text)) return "eac3";
+  if (/\bddp(?:[\s._-]?[1-7](?:[\s._-][0-2])?)?(?=[^a-z0-9]|$)/i.test(text)) return "eac3";
+
+  // 2. AC3 / DD / Dolby Digital
+  if (/\b(ac-?3)(?:[\s._-]?[1-7](?:[\s._-][0-2])?)?(?=[^a-z0-9]|$)/i.test(text)) return "ac3";
+  if (/\bdolby[\s._-]?digital\b/i.test(text)) return "ac3";
+  if (/\bdd(?:[\s._-]?[1-7](?:[\s._-][0-2])?|\b)(?=[^a-z0-9]|$)/i.test(text)) return "ac3";
+
+  // 3. AAC / HE-AAC
+  if (/\b(aac|he-aac)(?:[\s._-]?[1-7](?:[\s._-][0-2])?)?(?=[^a-z0-9]|$)/i.test(text)) return "aac";
+
+  // 4. Opus
+  if (/\bopus(?:[\s._-]?[1-7](?:[\s._-][0-2])?)?(?=[^a-z0-9]|$)/i.test(text)) return "opus";
+
+  // 5. MP3
+  if (/\bmp3\b/i.test(text)) return "mp3";
+
+  return "unknown";
+}
+
 export function parseHdr(text: string): string | null {
   if (/\b(dv|dovi|dolby[\s._-]?vision)\b/i.test(text)) return "DV";
   if (/(?:^|[^a-z0-9])(hdr10\+|hdr10plus)(?:[^a-z0-9]|$)/i.test(text)) return "HDR10+";
@@ -58,7 +90,7 @@ export function checkBadRelease(text: string): { isBad: boolean; reason?: string
 }
 
 export function parseSeasonEpisode(text: string): { season?: number; episode?: number } {
-  const seMatch = /\bs(\d{1,2})[\s._-]*e(\d{1,3})\b/i.exec(text);
+  const seMatch = /\b(?:s|season)[\s._-]*(\d{1,2})[\s._-]*(?:e|ep|episode)[\s._-]*(\d{1,3})\b/i.exec(text);
   if (seMatch) {
     return { season: Number.parseInt(seMatch[1], 10), episode: Number.parseInt(seMatch[2], 10) };
   }
@@ -88,6 +120,7 @@ export function parseReleaseDetails(text: string): ParsedReleaseDetails {
   const quality = parseQuality(text);
   const codec = parseCodec(text);
   const hdr = parseHdr(text);
+  const audioCodec = parseAudioCodec(text);
   const bad = checkBadRelease(text);
   const se = parseSeasonEpisode(text);
   const year = parseYear(text);
@@ -96,6 +129,7 @@ export function parseReleaseDetails(text: string): ParsedReleaseDetails {
     quality,
     codec,
     hdr,
+    audioCodec,
     isBadRelease: bad.isBad,
     badReleaseReason: bad.reason,
     season: se.season,
@@ -104,10 +138,45 @@ export function parseReleaseDetails(text: string): ParsedReleaseDetails {
   };
 }
 
-export function computeScore(source: Omit<PlaybackSource, "score">, target: MediaTarget): number {
+export function evaluateAudioCodecCompatibility(
+  audioCodec: AudioCodec,
+  capabilities?: ClientCapabilities,
+): "supported" | "unsupported" | "unknown" {
+  if (!capabilities) {
+    return "unknown";
+  }
+
+  if (audioCodec === "unknown") {
+    return "unknown";
+  }
+
+  const supported = capabilities.supportedAudioCodecs ?? capabilities.audioCodecs;
+  const unsupported = capabilities.unsupportedAudioCodecs;
+
+  if (unsupported && unsupported.includes(audioCodec)) {
+    return "unsupported";
+  }
+
+  if (supported) {
+    return supported.includes(audioCodec) ? "supported" : "unsupported";
+  }
+
+  if (unsupported) {
+    return "supported";
+  }
+
+  return "unknown";
+}
+
+export function computeScore(
+  source: Omit<PlaybackSource, "score">,
+  target: MediaTarget,
+  capabilities?: ClientCapabilities,
+): number {
   let score = 100;
   const combinedText = `${source.name} ${source.provider}`;
   const details = parseReleaseDetails(combinedText);
+  const audioCodec = source.audioCodec ?? details.audioCodec;
 
   // 1. Media Type & Episode/Season Matching
   if (target.mediaType === "tv") {
@@ -188,12 +257,20 @@ export function computeScore(source: Omit<PlaybackSource, "score">, target: Medi
 
   if (source.container === "mp4" && source.codec === "AVC") score += 200;
 
-  // 4. HDR
+  // 4. Audio Codec & Client Capabilities
+  const audioCompat = evaluateAudioCodecCompatibility(audioCodec, capabilities);
+  if (audioCompat === "supported") {
+    score += 180;
+  } else if (audioCompat === "unsupported") {
+    score -= 350;
+  }
+
+  // 5. HDR
   if (source.hdr === "DV") score += 40;
   else if (source.hdr === "HDR10+") score += 35;
   else if (source.hdr === "HDR10" || source.hdr === "HDR") score += 25;
 
-  // 5. Seeders
+  // 6. Seeders
   if (source.seeders <= 0) {
     score -= 300;
   } else {
@@ -201,7 +278,7 @@ export function computeScore(source: Omit<PlaybackSource, "score">, target: Medi
     if (source.seeders >= 40) score += 40;
   }
 
-  // 6. Size
+  // 7. Size
   if (source.sizeBytes && source.sizeBytes > 0) {
     const sizeGb = source.sizeBytes / 1e9;
     if (target.mediaType === "movie") {
@@ -228,7 +305,7 @@ export function computeScore(source: Omit<PlaybackSource, "score">, target: Medi
     }
   }
 
-  // 7. Bad Release Penalties
+  // 8. Bad Release Penalties
   if (details.isBadRelease) {
     if (details.badReleaseReason === "cam_or_screener") score -= 1000;
     else if (details.badReleaseReason === "sample") score -= 800;
@@ -239,11 +316,21 @@ export function computeScore(source: Omit<PlaybackSource, "score">, target: Medi
   return score;
 }
 
-export function rankSources(sources: PlaybackSource[], target: MediaTarget): PlaybackSource[] {
-  const scored = sources.map((source) => ({
-    ...source,
-    score: computeScore(source, target),
-  }));
+export function rankSources(
+  sources: PlaybackSource[],
+  target: MediaTarget,
+  capabilities?: ClientCapabilities,
+): PlaybackSource[] {
+  const scored = sources.map((source) => {
+    const combinedText = `${source.name} ${source.provider}`;
+    const details = parseReleaseDetails(combinedText);
+    const audioCodec = source.audioCodec ?? details.audioCodec;
+    return {
+      ...source,
+      audioCodec,
+      score: computeScore({ ...source, audioCodec }, target, capabilities),
+    };
+  });
 
   return scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;

@@ -1,5 +1,8 @@
+import { Star } from "lucide-react"
+
 import { AppLink } from "@/components/app-link"
 import { Progress } from "@/components/ui/progress"
+import { formatRating } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { MediaSummary } from "../../shared/media"
 
@@ -10,6 +13,7 @@ import type { MediaSummary } from "../../shared/media"
  */
 export function MediaCard({ media, progress, priority = false, className }: { media: MediaSummary; progress?: number; priority?: boolean; className?: string }) {
   const id = media.imdbId || media.id
+  const rating = formatRating(media.rating)
   return (
     <article className={cn("group min-w-0", className)}>
       <AppLink
@@ -29,7 +33,13 @@ export function MediaCard({ media, progress, priority = false, className }: { me
         </div>
         <div className="mt-2.5 min-w-0">
           <h3 className="truncate text-sm font-semibold tracking-tight">{media.title}</h3>
-          <p className="mt-0.5 flex gap-2 text-xs text-muted-foreground">
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            {rating ? (
+              <>
+                <span className="inline-flex items-center gap-1 text-foreground/85"><Star className="size-3 fill-rating text-rating" aria-hidden="true" /><span className="sr-only">IMDb rating </span>{rating}</span>
+                <span aria-hidden="true">·</span>
+              </>
+            ) : null}
             <span>{media.year ?? "Year unknown"}</span>
             <span aria-hidden="true">·</span>
             <span>{media.mediaType === "tv" ? "Series" : "Film"}</span>

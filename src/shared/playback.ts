@@ -12,6 +12,13 @@ export interface MediaTarget {
 
 export type VideoQuality = "2160p" | "1440p" | "1080p" | "720p" | "480p" | "unknown"
 export type VideoContainer = "mp4" | "webm" | "mkv" | "avi" | "mov" | "ts" | "unknown"
+export type AudioCodec = "aac" | "ac3" | "eac3" | "opus" | "mp3" | "unknown"
+
+export interface ClientCapabilities {
+  supportedAudioCodecs?: AudioCodec[]
+  unsupportedAudioCodecs?: AudioCodec[]
+  audioCodecs?: AudioCodec[]
+}
 
 export interface PlaybackSource {
   id: string
@@ -27,6 +34,7 @@ export interface PlaybackSource {
   container: VideoContainer
   codec: string | null
   hdr: string | null
+  audioCodec?: AudioCodec
   score: number
 }
 
@@ -51,6 +59,8 @@ export interface PlaybackStatus {
   id: string
   infoHash: string
   name: string
+  /** Container of the file rqbit actually selected after reading torrent metadata. */
+  container?: VideoContainer
   fileIndex: number | null
   streamUrl: string | null
   progress: number

@@ -3,9 +3,16 @@ import {
   normalizedRange,
   parseByteRange,
   selectPlayableFile,
+  videoContainer,
   selectSidecarSubtitles,
 } from "./selection";
 import type { RqbitFile } from "./types";
+
+it("reports the actual selected video container", () => {
+  expect(videoContainer("Episode.S01E01.mkv")).toBe("mkv");
+  expect(videoContainer("Movie.m4v")).toBe("mp4");
+  expect(videoContainer("Movie.webm")).toBe("webm");
+});
 
 describe("Deterministic file selection", () => {
   it("selects exact TV episode matching season and episode", () => {

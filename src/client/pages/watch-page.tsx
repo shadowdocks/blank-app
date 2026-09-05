@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { DownloadButton, useDownloads } from "@/components/downloads"
 import { PageSkeleton } from "@/components/page-state"
 import { PlayerStatus } from "@/components/player-status"
-import { isBrowserCompatible, PlayerPlaceholder, qualityLabel, VideoPlayer, type PlayerTrack, type QualityOption } from "@/components/video-player"
+import { isBrowserCompatible, isContainerCompatible, PlayerPlaceholder, qualityLabel, VideoPlayer, type PlayerTrack, type QualityOption } from "@/components/video-player"
 import { useCatalogEpisodes, useCatalogTitle, useLibrary, useNetworkStatus, usePlaybackProgress } from "@/hooks"
-import { createPlayback, errorMessage, fetchPlaybackSources, fetchPlaybackStatus, fetchSubtitles, isAbort, streamUrl } from "@/lib/api"
+import { createPlayback, deletePlayback, errorMessage, fetchPlaybackSources, fetchPlaybackStatus, fetchSubtitles, isAbort, streamUrl } from "@/lib/api"
+import { detectPlaybackCapabilities } from "@/lib/media-capabilities"
 import { navigate, type WatchRoute } from "@/lib/router"
 import { defaultDownloadManager, type DownloadManifest } from "@/offline"
 import type { MediaDetails } from "../../shared/media"
-import type { MediaTarget, PlaybackSource, PlaybackStatus, SubtitleTrack, VideoQuality } from "../../shared/playback"
+import type { ClientCapabilities, MediaTarget, PlaybackSource, PlaybackStatus, SubtitleTrack, VideoQuality } from "../../shared/playback"
 
 const QUALITY_RANK: Record<VideoQuality, number> = { "2160p": 5, "1440p": 4, "1080p": 3, "720p": 2, "480p": 1, unknown: 0 }
 
@@ -43,13 +44,14 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
     return id
   })
   const playerRef = useRef<MediaPlayerInstance>(null)
+  const capabilities = useMemo(() => detectPlaybackCapabilities(), [])
   const currentTimeRef = useRef(0)
   const durationRef = useRef(0)
   const lastSavedRef = useRef(0)
   const failedSourcesRef = useRef(new Set<string>())
   const switchingSourceRef = useRef(false)
   /** Position and play intent carried across a source change. */
-  const carryRef = useRef<{ time: number; play: boolean } | null>(null)
+  const carryRef = useRef<{ time: number; play: boolean; volume: number; muted: boolean } | null>(null)
   const subtitleLangRef = useRef<string | null>(library.preferences.subtitlesEnabled ? library.preferences.subtitleLanguage : null)
 
   const downloadId = imdbId ? `${imdbId}${season !== null && episode !== null ? `-s${season}-e${episode}` : ""}` : ""
@@ -58,16 +60,26 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
   const episodeDetails = episodes.data?.results.find((item) => item.episode === episode)
   const target = useMemo<MediaTarget | null>(() => details.data && imdbId ? ({ imdbId, mediaType: details.data.mediaType, title: details.data.title, year: details.data.year, season, episode, episodeTitle: episodeDetails?.title ?? null }) : null, [details.data, episode, episodeDetails?.title, imdbId, season])
 
-  const startSource = useCallback(async (source: PlaybackSource, targetMedia: MediaTarget, signal?: AbortSignal) => {
+  const startSource = useCallback(async (source: PlaybackSource, targetMedia: MediaTarget, signal?: AbortSignal): Promise<boolean> => {
     setSelected(source); setStatus(null); setSubtitles([]); setError(null); setLoadingSources(true)
     try {
       const initial = await createPlayback({ target: targetMedia, sourceId: source.id, source }, signal)
+      if (initial.container && initial.container !== "unknown" && !isContainerCompatible(initial.container)) {
+        failedSourcesRef.current.add(source.id)
+        await deletePlayback(initial.id).catch(() => undefined)
+        setError(`The selected torrent contains ${initial.container.toUpperCase()} video, which this browser cannot play.`)
+        setLoadingSources(false)
+        return false
+      }
       let tracks = initial.subtitles
-      try { tracks = mergeTracks(initial.subtitles, await fetchSubtitles(initial.id, signal)) } catch (caught) { if (isAbort(caught)) return }
+      try { tracks = mergeTracks(initial.subtitles, await fetchSubtitles(initial.id, signal)) } catch (caught) { if (isAbort(caught)) return false }
       setSubtitles(tracks); setStatus(initial); setLoadingSources(false)
+      return true
     } catch (caught) {
-      if (isAbort(caught)) return
+      if (isAbort(caught)) return false
+      failedSourcesRef.current.add(source.id)
       setError(errorMessage(caught)); setLoadingSources(false)
+      return false
     }
   }, [])
 
@@ -75,7 +87,12 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
   const switchSource = useCallback((source: PlaybackSource) => {
     if (!target || source.id === selected?.id) return
     const player = playerRef.current
-    carryRef.current = { time: player?.currentTime ?? currentTimeRef.current, play: player ? !player.paused : true }
+    carryRef.current = {
+      time: player?.currentTime ?? currentTimeRef.current,
+      play: player ? !player.paused : true,
+      volume: player?.volume ?? 1,
+      muted: player?.muted ?? false,
+    }
     void startSource(source, target)
   }, [selected?.id, startSource, target])
 
@@ -85,15 +102,18 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
     failedSourcesRef.current.clear()
     carryRef.current = null
     setLoadingSources(true); setError(null); setSources([]); setSelected(null); setStatus(null)
-    void fetchPlaybackSources(target, controller.signal).then((found) => {
+    void fetchPlaybackSources(target, controller.signal, capabilities).then(async (found) => {
       const ranked = [...found].sort((a, b) => b.score - a.score || b.seeders - a.seeders)
       setSources(ranked)
-      const best = preferredSource(ranked, library.preferences.defaultQuality)
-      if (!best) { setLoadingSources(false); setError("No playable sources were found for this title."); return }
-      return startSource(best, target, controller.signal)
+      let candidate = preferredSource(ranked, library.preferences.defaultQuality, capabilities)
+      if (!candidate) { setLoadingSources(false); setError("No playable sources were found for this title."); return }
+      for (let attempt = 0; attempt < 3 && candidate && !controller.signal.aborted; attempt += 1) {
+        if (await startSource(candidate, target, controller.signal)) return
+        candidate = fallbackSource(ranked, candidate, failedSourcesRef.current, capabilities)
+      }
     }).catch((caught: unknown) => { if (!isAbort(caught)) { setError(errorMessage(caught)); setLoadingSources(false) } })
     return () => controller.abort()
-  }, [library.preferences.defaultQuality, nonce, offlineId, offlineManifest, startSource, target])
+  }, [capabilities, library.preferences.defaultQuality, nonce, offlineId, offlineManifest, startSource, target])
 
   useEffect(() => {
     const playbackId = status?.id
@@ -128,7 +148,7 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
   const rawTracks = offlineManifest ? offlineTracks(offlineManifest) : subtitles
   const defaultTrackId = subtitleLangRef.current ? rawTracks.find((track) => track.language === subtitleLangRef.current)?.id ?? null : null
   const playerTracks: PlayerTrack[] = rawTracks.map((track) => ({ id: track.id, src: track.url, type: track.format === "ass" ? "vtt" : track.format, label: subtitleOptionLabel(track, rawTracks), lang: track.language, default: track.id === defaultTrackId }))
-  const qualityOptions = qualityChoices(sources, selected)
+  const qualityOptions = qualityChoices(sources, selected, capabilities)
   const backRoute = details.data ? { name: "title", id: imdbId, imdbId, type: media.mediaType } as const : { name: "library" } as const
   const goBack = () => navigate(backRoute)
   const switching = loadingSources && selected !== null && carryRef.current !== null
@@ -146,12 +166,15 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
     const carried = carryRef.current
     carryRef.current = null
     if (carried) {
+      player.volume = carried.volume
+      player.muted = carried.muted
       if (carried.time > 1) player.currentTime = carried.time
-      if (carried.play) void player.play().catch(() => undefined)
+      if (carried.play) requestPlayback(player)
       return
     }
     const resumeAt = progress.progress && library.preferences.autoResume && !progress.progress.completed ? progress.progress.positionSeconds : 0
     if (resumeAt > 5) player.currentTime = resumeAt
+    if (library.preferences.autoplay) requestPlayback(player)
   }
   const onTimeUpdate = (currentTime: number, duration: number) => {
     currentTimeRef.current = currentTime
@@ -161,11 +184,20 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
   const onPlayerError = () => {
     if (!selected || !target || switchingSourceRef.current) return
     failedSourcesRef.current.add(selected.id)
-    const fallback = sources.find((source) => isBrowserCompatible(source) && !failedSourcesRef.current.has(source.id))
+    const fallback = fallbackSource(sources, selected, failedSourcesRef.current, capabilities)
     if (fallback) {
       switchingSourceRef.current = true
-      carryRef.current = { time: currentTimeRef.current, play: true }
-      void startSource(fallback, target).finally(() => { switchingSourceRef.current = false })
+      carryRef.current = {
+        time: currentTimeRef.current,
+        play: true,
+        volume: playerRef.current?.volume ?? 1,
+        muted: playerRef.current?.muted ?? false,
+      }
+      void startSource(fallback, target).then((started) => {
+        if (started) return
+        const next = fallbackSource(sources, fallback, failedSourcesRef.current, capabilities)
+        if (next) return startSource(next, target)
+      }).finally(() => { switchingSourceRef.current = false })
       return
     }
     setError("This source uses a video format your browser cannot play. Choose another source.")
@@ -173,7 +205,7 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
   const downloadOptions = { id: downloadId, title: displayTitle, mediaType: media.mediaType, year: media.year, mediaUrl: onlineSource ?? "", totalBytes: status?.totalBytes, subtitles: subtitles.slice(0, 3).map((track) => ({ id: track.id, label: track.label, language: track.language, url: track.url, format: track.format })), posterUrl: media.posterUrl, backdropUrl: media.backdropUrl, metadata: { imdbId, season, episode } }
   const notice = error ? { message: error, onRetry: () => { setError(null); setNonce((value) => value + 1) } } : null
   const statusLine = <PlayerStatus status={status} offline={Boolean(offlineManifest)} switching={switching} />
-  const sourceLine = offlineManifest ? "Offline copy" : selected ? `${qualityLabel(selected.quality)}${selected.container !== "unknown" ? ` · ${selected.container.toUpperCase()}` : ""}` : null
+  const sourceLine = offlineManifest ? "Offline copy" : selected ? `${qualityLabel(selected.quality)}${selected.container !== "unknown" ? ` · ${selected.container.toUpperCase()}` : ""}${audioLabel(selected) ? ` · ${audioLabel(selected)}` : ""}` : null
 
   return (
     <div className="watch-route animate-fade">
@@ -208,7 +240,7 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
         <PlayerPlaceholder
           viewport
           title={media.title}
-          subtitle={episodeLabel}
+          subtitle={[episodeLabel, sourceLine].filter(Boolean).join(" · ") || null}
           onBack={goBack}
           notice={notice}
           loading={switching ? "Switching source" : loadingSources ? "Preparing the best available source" : "Waiting for a playable stream"}
@@ -218,19 +250,27 @@ export default function WatchPage({ route }: { route: WatchRoute }) {
   )
 }
 
+function requestPlayback(player: MediaPlayerInstance): void {
+  void player.play().catch(() => {
+    player.muted = true
+    void player.play().catch(() => undefined)
+  })
+}
+
 /**
  * One option per resolution, preferring browser-compatible containers. The
  * active source is always listed so the label reflects what is really playing.
  */
-function qualityChoices(sources: PlaybackSource[], selected: PlaybackSource | null): QualityOption[] {
-  const compatible = sources.filter(isBrowserCompatible)
-  const pool = compatible.length ? compatible : sources
+function qualityChoices(sources: PlaybackSource[], selected: PlaybackSource | null, capabilities: ClientCapabilities): QualityOption[] {
   const byQuality = new Map<VideoQuality, PlaybackSource>()
   if (selected) byQuality.set(selected.quality, selected)
-  for (const source of pool) if (!byQuality.has(source.quality)) byQuality.set(source.quality, source)
+  for (const source of sources) {
+    const current = byQuality.get(source.quality)
+    if (!current || compatibilityRank(source, capabilities) > compatibilityRank(current, capabilities)) byQuality.set(source.quality, source)
+  }
   return Array.from(byQuality.values())
     .sort((a, b) => QUALITY_RANK[b.quality] - QUALITY_RANK[a.quality])
-    .map((source) => ({ id: source.id, label: source.quality === "unknown" ? "Unknown" : source.quality, detail: source.container !== "unknown" ? source.container.toUpperCase() : undefined }))
+    .map((source) => ({ id: source.id, label: source.quality === "unknown" ? "Unknown" : source.quality, detail: [source.container !== "unknown" ? source.container.toUpperCase() : null, audioLabel(source)].filter(Boolean).join(" · ") || undefined }))
 }
 
 function mergeTracks(...sets: SubtitleTrack[][]): SubtitleTrack[] {
@@ -270,16 +310,48 @@ function offlineMediaDetails(manifest: DownloadManifest, imdbId: string): MediaD
   }
 }
 
-function preferredSource(sources: PlaybackSource[], quality: VideoQuality): PlaybackSource | undefined {
-  const compatible = sources.filter(isBrowserCompatible)
-  const pool = compatible.length ? compatible : sources
-  if (quality === "unknown") return pool[0]
-  const exact = pool.find((source) => source.quality === quality)
-  if (exact) return exact
+function preferredSource(sources: PlaybackSource[], quality: VideoQuality, capabilities: ClientCapabilities): PlaybackSource | undefined {
+  if (quality === "unknown") return bestSource(sources, capabilities)
+  const exact = sources.filter((source) => source.quality === quality)
+  if (exact.length) return bestSource(exact, capabilities)
   const targetRank = QUALITY_RANK[quality]
-  return [...pool]
-    .filter((source) => QUALITY_RANK[source.quality] <= targetRank)
-    .sort((a, b) => QUALITY_RANK[b.quality] - QUALITY_RANK[a.quality] || b.score - a.score)[0] ?? pool[0]
+  const lower = sources.filter((source) => QUALITY_RANK[source.quality] <= targetRank)
+  const nextQuality = [...new Set(lower.map((source) => source.quality))].sort((a, b) => QUALITY_RANK[b] - QUALITY_RANK[a])[0]
+  return bestSource(lower.filter((source) => source.quality === nextQuality), capabilities) ?? bestSource(sources, capabilities)
+}
+
+function bestSource(sources: PlaybackSource[], capabilities: ClientCapabilities): PlaybackSource | undefined {
+  return sources.reduce<PlaybackSource | undefined>((best, source) => {
+    if (!best) return source
+    const sourceRank = compatibilityRank(source, capabilities)
+    const bestRank = compatibilityRank(best, capabilities)
+    return sourceRank > bestRank || (sourceRank === bestRank && source.score > best.score) ? source : best
+  }, undefined)
+}
+
+function fallbackSource(sources: PlaybackSource[], failed: PlaybackSource, excluded: Set<string>, capabilities: ClientCapabilities): PlaybackSource | undefined {
+  const remaining = sources.filter((source) => !excluded.has(source.id))
+  const knownBrowserSources = remaining.filter(isBrowserCompatible)
+  if (knownBrowserSources.length) return bestSource(knownBrowserSources, capabilities)
+  return preferredSource(remaining, failed.quality, capabilities)
+}
+
+function compatibilityRank(source: PlaybackSource, capabilities: ClientCapabilities): number {
+  const audio = source.audioCodec
+  const unsupportedAudio = audio && audio !== "unknown" && capabilities.unsupportedAudioCodecs?.includes(audio)
+  const supportedAudio = audio && audio !== "unknown" && capabilities.supportedAudioCodecs?.includes(audio)
+  if (unsupportedAudio) return 0
+  if (isBrowserCompatible(source) && supportedAudio) return 4
+  if (supportedAudio) return 3
+  if (isBrowserCompatible(source)) return 2
+  return 1
+}
+
+function audioLabel(source: PlaybackSource): string | null {
+  if (!source.audioCodec || source.audioCodec === "unknown") return null
+  if (source.audioCodec === "eac3") return "EAC3"
+  if (source.audioCodec === "ac3") return "AC3"
+  return source.audioCodec.toUpperCase()
 }
 
 function subtitleOptionLabel(track: SubtitleTrack, tracks: SubtitleTrack[]): string {

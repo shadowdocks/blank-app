@@ -5,6 +5,8 @@ node_modules/
 .dev.vars
 .wrangler/
 cloudflare/worker-configuration.d.ts
+/playwright-report/
+/test-results/
 /vendor/
 
 # Byte-compiled / optimized / DLL files
